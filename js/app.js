@@ -1982,6 +1982,33 @@
     return tr;
   }
 
+  // Grava o código do CAR clicado no serviço aberto (campo "Recibo CAR" do pilar Dados)
+  function botaoUsarCar(codigo) {
+    const s = svc();
+    if (s && s.docs.car === codigo) {
+      const igual = document.createElement('div');
+      igual.className = 'text-emerald-700 text-[10px] mt-1';
+      igual.textContent = '✓ É o código do CAR deste serviço.';
+      return igual;
+    }
+    const usar = document.createElement('button');
+    usar.type = 'button';
+    usar.className = 'mt-1 bg-sky-700 hover:bg-sky-600 px-2 py-0.5 rounded text-[10px] text-white';
+    usar.textContent = 'Usar este código do CAR no serviço';
+    usar.addEventListener('click', () => {
+      const atual = svc();
+      if (!atual) return msg('Crie ou selecione um serviço antes de usar o código do CAR.', true);
+      if (atual.docs.car && atual.docs.car !== codigo &&
+          !confirm(`O serviço já tem o código do CAR ${atual.docs.car}. Trocar por ${codigo}?`)) return;
+      atual.docs.car = codigo;
+      document.querySelectorAll('[data-doc=car]').forEach(input => (input.value = codigo));
+      commitChanges();
+      usar.replaceWith(botaoUsarCar(codigo));
+      msg(`Código do CAR ${codigo} gravado no serviço "${atual.name}".`);
+    });
+    return usar;
+  }
+
   function conteudoIdentificacao(dados) {
     const caixa = document.createElement('div');
     caixa.className = 'text-[11px] space-y-2';
@@ -2011,6 +2038,7 @@
         const tabela = document.createElement('table');
         f.campos.forEach(([rotulo, valor]) => tabela.append(linhaCampo(rotulo, valor)));
         bloco.append(titulo, tabela);
+        if (c.id === 'sicar' && PADRAO_CAR.test(f.titulo)) bloco.append(botaoUsarCar(f.titulo));
       });
       caixa.append(bloco);
     });
