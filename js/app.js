@@ -1,18 +1,32 @@
 /* GeoWork: clientes, serviços, mapa, barra CAD e os quatro pilares. Usa Geo, Cad, Exporter e Memorial. */
 (() => {
   const STORAGE_KEY = 'geowork:v1';
-  const RL_PERCENT = 20; // referência de Reserva Legal; varia por bioma e região, confirmar com o RT
   const SNAP_PX = 12;
   // Mesmo padrão do servidor (backend/app/schemas.py): UF, código IBGE de 7 dígitos e 32 hexadecimais
   const PADRAO_CAR = /^[A-Z]{2}-\d{7}-[0-9A-F]{32}$/;
 
+  // Camadas de desenho. As do CAR seguem os passos da etapa Geo do Módulo de Cadastro do SICAR.
+  // closed: polígono; point: ponto (um só por imóvel); os demais são linhas.
   const LAYERS = {
-    perimetro: { label: 'Perímetro oficial do imóvel', color: '#38bdf8', closed: true, dxf: 'PERIMETRO' },
-    rl: { label: 'Reserva Legal (CAR)', color: '#22c55e', closed: true, dxf: 'RESERVA_LEGAL' },
-    app: { label: 'APP', color: '#60a5fa', closed: true, dxf: 'APP' },
-    hidro: { label: "Curso d'água (linha)", color: '#0ea5e9', closed: false, dxf: 'HIDROGRAFIA' },
-    edificacao: { label: 'Edificação / benfeitoria', color: '#f97316', closed: true, dxf: 'EDIFICACAO' },
+    perimetro: { label: 'Perímetro oficial do imóvel', grupo: 'Imóvel', color: '#38bdf8', closed: true, dxf: 'PERIMETRO' },
+    sede: { label: 'Sede ou ponto de referência', grupo: 'Imóvel', color: '#facc15', closed: false, point: true, dxf: 'SEDE' },
+    vegetacao_nativa: { label: 'Remanescente de vegetação nativa', grupo: 'Cobertura do solo', color: '#16a34a', closed: true, dxf: 'VEGETACAO_NATIVA' },
+    area_consolidada: { label: 'Área rural consolidada', grupo: 'Cobertura do solo', color: '#ca8a04', closed: true, dxf: 'AREA_CONSOLIDADA' },
+    pousio: { label: 'Área de pousio', grupo: 'Cobertura do solo', color: '#a3a3a3', closed: true, dxf: 'POUSIO' },
+    servidao: { label: 'Servidão administrativa', grupo: 'Servidão administrativa', color: '#e879f9', closed: true, dxf: 'SERVIDAO_ADMINISTRATIVA' },
+    app: { label: 'APP', grupo: 'APP e uso restrito', color: '#60a5fa', closed: true, dxf: 'APP' },
+    uso_restrito: { label: 'Área de uso restrito', grupo: 'APP e uso restrito', color: '#818cf8', closed: true, dxf: 'USO_RESTRITO' },
+    rl: { label: 'Reserva Legal proposta', grupo: 'Reserva Legal', color: '#22c55e', closed: true, dxf: 'RESERVA_LEGAL' },
+    rl_averbada: { label: 'Reserva Legal averbada', grupo: 'Reserva Legal', color: '#4ade80', closed: true, dxf: 'RL_AVERBADA' },
+    rl_aprovada: { label: 'Reserva Legal aprovada e não averbada', grupo: 'Reserva Legal', color: '#86efac', closed: true, dxf: 'RL_APROVADA_NAO_AVERBADA' },
+    rl_compensacao: { label: 'RL vinculada à compensação de outro imóvel', grupo: 'Reserva Legal', color: '#14b8a6', closed: true, dxf: 'RL_COMPENSACAO' },
+    hidro: { label: "Curso d'água (linha)", grupo: 'Outros', color: '#0ea5e9', closed: false, dxf: 'HIDROGRAFIA' },
+    edificacao: { label: 'Edificação / benfeitoria', grupo: 'Outros', color: '#f97316', closed: true, dxf: 'EDIFICACAO' },
   };
+  // O perímetro tem rota própria no servidor; as demais camadas são gravadas em lote
+  const CAMADAS_DESENHO = Object.keys(LAYERS).filter(cat => cat !== 'perimetro');
+  const ROTULOS = Object.fromEntries(Object.entries(LAYERS).map(([cat, info]) => [cat, info.label]));
+  const emptyLayers = () => Object.fromEntries(Object.keys(LAYERS).map(cat => [cat, []]));
 
   const TIPOS_DIVISA = {
     PESSOA: 'Pessoa',
@@ -48,7 +62,9 @@
       name,
       rev,
       mf: null,
-      layers: { perimetro: [], rl: [], app: [], hidro: [], edificacao: [] },
+      areaDoc: null,
+      rlPct: null,
+      layers: emptyLayers(),
       meta: { codes: [], vertex: [], segs: [] },
       docs: { matricula: '', incra: '', car: '' },
     };
@@ -68,7 +84,10 @@
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-      if (saved && Array.isArray(saved.services)) return saved;
+      if (saved && Array.isArray(saved.services)) {
+        saved.services.forEach(x => (x.layers = { ...emptyLayers(), ...x.layers }));
+        return saved;
+      }
     } catch (err) {
       // dados corrompidos: volta ao exemplo
     }
@@ -126,7 +145,6 @@
     return res.json();
   }
 
-  const emptyLayers = () => ({ perimetro: [], rl: [], app: [], hidro: [], edificacao: [] });
   const emptyMeta = () => ({ codes: [], vertex: [], segs: [] });
   const toNumber = v => {
     const n = parseFloat(String(v ?? '').replace(',', '.'));
@@ -141,6 +159,8 @@
       name: x.nome_imovel,
       rev: x.revisao,
       mf: null,
+      areaDoc: null,
+      rlPct: null,
       remote: true,
       layers: emptyLayers(),
       meta: emptyMeta(),
@@ -153,11 +173,14 @@
     const s = {
       ...summaryOf(d),
       mf: d.modulo_fiscal_ha ? Number(d.modulo_fiscal_ha) : null,
+      areaDoc: d.area_documental_ha ? Number(d.area_documental_ha) : null,
+      rlPct: d.rl_percentual ? Number(d.rl_percentual) : null,
       docs: { matricula: d.matricula || '', incra: d.codigo_sncr || '', car: d.codigo_car || '' },
     };
     // Curvas de nível têm rota própria (mostrarCurvasSalvas): não entram nas camadas de desenho
-    d.camadas.filter(c => c.categoria !== 'curvas').forEach(c => {
-      const coords = c.geometry.type === 'Polygon' ? c.geometry.coordinates[0] : c.geometry.coordinates;
+    d.camadas.filter(c => c.categoria !== 'curvas' && s.layers[c.categoria]).forEach(c => {
+      const g = c.geometry;
+      const coords = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'Point' ? [g.coordinates] : g.coordinates;
       s.layers[c.categoria].push(coords);
     });
     d.vertices.forEach(v => {
@@ -221,9 +244,8 @@
     } else {
       await api(`/servicos/${s.id}/perimetro`, { method: 'DELETE' });
     }
-    for (const cat of ['rl', 'app', 'hidro', 'edificacao']) {
-      await api(`/servicos/${s.id}/camadas/${cat}`, { method: 'PUT', body: { features: s.layers[cat] } });
-    }
+    const camadas = Object.fromEntries(CAMADAS_DESENHO.map(cat => [cat, s.layers[cat]]));
+    await api(`/servicos/${s.id}/camadas`, { method: 'PUT', body: { camadas } });
     await api(`/servicos/${s.id}`, {
       method: 'PUT',
       body: {
@@ -231,6 +253,8 @@
         codigo_sncr: s.docs.incra || null,
         codigo_car: s.docs.car || null,
         modulo_fiscal_ha: s.mf || null,
+        area_documental_ha: s.areaDoc || null,
+        rl_percentual: s.rlPct || null,
       },
     });
   }
@@ -550,7 +574,9 @@
     const d = ui.draft;
     if (!s || !d || !d.points.length) return msg('Não há desenho em andamento.', true);
     const info = LAYERS[d.layer];
-    if (info.closed) {
+    if (info.point) {
+      s.layers[d.layer] = [[d.points.at(-1)]]; // um só ponto por imóvel: o novo substitui o anterior
+    } else if (info.closed) {
       if (d.points.length < 3) return msg('Polígono precisa de pelo menos 3 pontos.', true);
       const ring = closeRing(d.points);
       if (d.layer === 'perimetro') {
@@ -564,7 +590,7 @@
       s.layers[d.layer].push([...d.points]);
     }
     ui.draft = null;
-    msg(`${info.label}: desenho fechado.`);
+    msg(`${info.label}: ${info.point ? 'ponto marcado' : 'desenho fechado'}.`);
     commitChanges();
   }
 
@@ -633,9 +659,10 @@
     const s = svc();
     if (!s) return msg('Crie ou selecione um serviço antes do OFFSET.', true);
     if (ui.layer === 'perimetro') {
-      return msg('OFFSET não cria paralela do perímetro. Escolha RL, APP, curso d\'água ou edificação.', true);
+      return msg('OFFSET não cria paralela do perímetro. Escolha uma camada de polígono ou linha.', true);
     }
     const info = LAYERS[ui.layer];
+    if (info.point) return msg('OFFSET não se aplica à sede, que é um ponto.', true);
     const item = s.layers[ui.layer].at(-1);
     if (!item) return msg(`A camada "${info.label}" está vazia.`, true);
     if (dist === 0) return msg('A distância do OFFSET não pode ser zero.', true);
@@ -674,7 +701,11 @@
       const info = LAYERS[cat];
       items.forEach(item => {
         const latlngs = item.map(([lng, lat]) => [lat, lng]);
-        if (info.closed) {
+        if (info.point) {
+          L.circleMarker(latlngs[0], { radius: 7, color: '#0f172a', weight: 2, fillColor: info.color, fillOpacity: 1 })
+            .bindTooltip(info.label, { direction: 'top', offset: [0, -6] })
+            .addTo(mapGroup);
+        } else if (info.closed) {
           L.polygon(latlngs, { color: info.color, weight: 2, fillOpacity: 0.2 }).addTo(mapGroup);
         } else {
           L.polyline(latlngs, { color: info.color, weight: 3 }).addTo(mapGroup);
@@ -759,29 +790,76 @@
       input.disabled = !s;
     });
     el('mfInput').value = s && s.mf ? s.mf : '';
+    el('areaDocInput').value = s && s.areaDoc ? s.areaDoc : '';
+    el('rlPctSelect').value = String((s && s.rlPct) || 20);
+  }
+
+  // Quadro de áreas do CAR: classes recortadas pelo perímetro, em UTM (js/car.js)
+  function renderQuadroCar(q) {
+    const corpo = el('carQuadro');
+    corpo.textContent = '';
+    el('carMf').textContent = q && q.modulos ? `${fmt(q.modulos, 2)} MF` : 'informe o módulo fiscal';
+    if (!q) return;
+    const linhas = [
+      ['Área do imóvel', q.areaImovelHa, 'font-bold', true],
+      [ROTULOS.servidao, q.servidaoHa, '', true],
+      ['Área líquida', q.areaLiquidaHa, 'font-semibold', true],
+      ...Car.COBERTURA.map(cat => [ROTULOS[cat], q.classes[cat], '']),
+      [ROTULOS.app, q.classes.app, 'text-sky-300'],
+      [ROTULOS.uso_restrito, q.classes.uso_restrito, 'text-sky-300'],
+      ['Reserva Legal do imóvel', q.rlTotalHa, 'text-emerald-300 font-semibold', true],
+      ...Car.RL_DO_IMOVEL.map(cat => [`· ${ROTULOS[cat]}`, q.classes[cat], 'text-emerald-300']),
+      [`RL mínima (${q.percentual}% da área líquida)`, q.rlMinimaHa, 'text-emerald-300', true],
+      [ROTULOS.rl_compensacao, q.classes.rl_compensacao, 'text-teal-300'],
+    ];
+    linhas.forEach(([rotulo, ha, classe, sempre]) => {
+      if (!sempre && !(ha > 0)) return; // classes vazias não ocupam linha
+      const tr = document.createElement('tr');
+      tr.className = `border-b border-slate-800 ${classe}`;
+      [rotulo, `${fmt(ha, 4)}`, q.areaImovelHa ? `${fmt((ha / q.areaImovelHa) * 100, 1)}%` : '-'].forEach((texto, i) => {
+        const td = document.createElement('td');
+        td.className = i ? 'py-0.5 text-right font-mono' : 'py-0.5';
+        td.textContent = texto;
+        tr.append(td);
+      });
+      corpo.append(tr);
+    });
+  }
+
+  function renderPreAnalise(checks) {
+    const list = el('carPreAnalise');
+    list.textContent = '';
+    const marks = { ok: '✓ ', info: 'ℹ ', aviso: '⚠ ', erro: '✗ ' };
+    const colors = { ok: 'text-emerald-400', info: 'text-sky-300', aviso: 'text-amber-300', erro: 'text-rose-400' };
+    checks.forEach(([level, text]) => {
+      const li = document.createElement('li');
+      li.className = colors[level];
+      li.textContent = marks[level] + text;
+      list.append(li);
+    });
   }
 
   function renderDesenho() {
     const s = svc();
-    const pm = perimeterCtx();
     el('activeLayerSelect').value = ui.layer;
 
-    const totalHa = pm ? pm.summary.areaUtmHa : 0;
-    const rlExigida = (totalHa * RL_PERCENT) / 100;
-    const rlHa = s ? s.layers.rl.reduce((t, r) => t + ringAreaHa(r), 0) : 0;
-    const appHa = s ? s.layers.app.reduce((t, r) => t + ringAreaHa(r), 0) : 0;
-    const mf = s && s.mf;
-
-    el('carTotalHa').textContent = `${fmt(totalHa, 4)} ha`;
-    el('carRlExig').textContent = `${fmt(rlExigida, 4)} ha (${RL_PERCENT}% de referência)`;
-    el('carRlDesenhada').textContent = `${fmt(rlHa, 4)} ha`;
-    el('carApp').textContent = `${fmt(appHa, 4)} ha`;
-    el('carMf').textContent = mf && totalHa ? `${fmt(totalHa / mf, 2)} MF` : 'informe o módulo fiscal';
-    el('carStatus').textContent = !pm
-      ? 'Sem perímetro.'
-      : rlHa >= rlExigida
-        ? 'Reserva Legal desenhada atende ao percentual de referência.'
-        : `Faltam ${fmt(rlExigida - rlHa, 4)} ha de Reserva Legal.`;
+    let analise = { quadro: null, checks: [] };
+    if (s) {
+      try {
+        analise = Car.analisar({
+          camadas: s.layers,
+          rotulos: ROTULOS,
+          mfHa: s.mf,
+          rlPercentual: s.rlPct,
+          areaDocumentalHa: s.areaDoc,
+        });
+      } catch (err) {
+        console.error('Falha na pré-análise do CAR:', err);
+        analise.checks = [['erro', `Não foi possível analisar as camadas: ${err.message}`]];
+      }
+    }
+    renderQuadroCar(analise.quadro);
+    renderPreAnalise(analise.checks);
 
     const list = el('layerList');
     list.textContent = '';
@@ -793,7 +871,11 @@
       name.textContent = info.label;
       const count = document.createElement('span');
       count.className = 'font-mono text-slate-400';
-      count.textContent = info.closed ? `${items.length} polígono(s)` : `${items.length} linha(s)`;
+      count.textContent = info.point
+        ? `${items.length} ponto(s)`
+        : info.closed
+          ? `${items.length} polígono(s)`
+          : `${items.length} linha(s)`;
       li.append(name, count);
       list.append(li);
     });
@@ -986,13 +1068,19 @@
     if (!s) throw new Error('crie um serviço antes de importar');
     const cat = ui.layer;
     const info = LAYERS[cat];
-    const wanted = info.closed ? ['Polygon', 'MultiPolygon'] : ['LineString', 'MultiLineString'];
+    const wanted = info.point
+      ? ['Point', 'MultiPoint']
+      : info.closed
+        ? ['Polygon', 'MultiPolygon']
+        : ['LineString', 'MultiLineString'];
     const usable = collectFeatures(data).filter(f => f.geometry && wanted.includes(f.geometry.type));
     if (!usable.length) throw new Error(`nenhuma geometria compatível com "${info.label}" (${wanted.join(' ou ')})`);
 
     const rings = [];
     usable.forEach(({ geometry: g }) => {
-      if (g.type === 'Polygon') rings.push(g.coordinates[0]);
+      if (g.type === 'Point') rings.push([g.coordinates]);
+      else if (g.type === 'MultiPoint') g.coordinates.forEach(c => rings.push([c]));
+      else if (g.type === 'Polygon') rings.push(g.coordinates[0]);
       else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => rings.push(p[0]));
       else if (g.type === 'LineString') rings.push(g.coordinates);
       else g.coordinates.forEach(line => rings.push(line));
@@ -1005,6 +1093,9 @@
       s.layers.perimetro = [closeRing(rings[0])];
       s.meta = { codes: [], vertex: [], segs: [] };
       if (rings.length > 1) msg(`Só o primeiro polígono de "${fileName}" foi usado no perímetro.`);
+    } else if (info.point) {
+      s.layers[cat] = [rings[0]];
+      msg(`${info.label} importada de "${fileName}"${rings.length > 1 ? ' (só o primeiro ponto foi usado)' : ''}.`);
     } else {
       s.layers[cat].push(...rings.map(r => (info.closed ? closeRing(r) : r)));
       msg(`${rings.length} feição(ões) importada(s) de "${fileName}" para ${info.label}.`);
@@ -1289,8 +1380,8 @@
     Object.entries(s.layers).forEach(([cat, items]) =>
       items.forEach(item => {
         const pts = item.map(([lng, lat]) => Geo.toUtmPoint(lng, lat, zone));
-        const closed = LAYERS[cat].closed;
-        features.push({ layer: LAYERS[cat].dxf, points: closed ? pts.slice(0, -1) : pts, closed });
+        const { closed, point, dxf } = LAYERS[cat];
+        features.push({ layer: dxf, points: closed ? pts.slice(0, -1) : pts, closed, point: !!point });
       })
     );
     download(`${slug(s.name)}_utm${zone}s.dxf`, Exporter.toDxf(features), 'application/dxf');
@@ -1305,9 +1396,11 @@
         features.push({
           type: 'Feature',
           properties: { camada: cat, descricao: LAYERS[cat].label, servico: s.name },
-          geometry: LAYERS[cat].closed
-            ? { type: 'Polygon', coordinates: [item] }
-            : { type: 'LineString', coordinates: item },
+          geometry: LAYERS[cat].point
+            ? { type: 'Point', coordinates: item[0] }
+            : LAYERS[cat].closed
+              ? { type: 'Polygon', coordinates: [item] }
+              : { type: 'LineString', coordinates: item },
         })
       )
     );
@@ -1444,6 +1537,7 @@
   map.on('click', e => {
     if (!svc()) return msg('Crie ou selecione um serviço antes de desenhar.', true);
     addDraftPoint(snapTarget(e.latlng));
+    if (LAYERS[ui.layer].point) return commitDraft(); // ponto: um clique basta
     refresh();
   });
 
@@ -1559,9 +1653,36 @@
   );
 
   // Pilar 2
+  // Seletor de camadas agrupado como na etapa Geo do CAR
+  (() => {
+    const sel = el('activeLayerSelect');
+    const grupos = {};
+    Object.entries(LAYERS).forEach(([cat, info]) => {
+      if (!grupos[info.grupo]) {
+        grupos[info.grupo] = document.createElement('optgroup');
+        grupos[info.grupo].label = info.grupo;
+        sel.append(grupos[info.grupo]);
+      }
+      grupos[info.grupo].append(opt(cat, info.label));
+    });
+  })();
+
   el('activeLayerSelect').addEventListener('change', e => {
     ui.layer = e.target.value;
     refresh();
+  });
+  el('areaDocInput').addEventListener('change', e => {
+    const s = svc();
+    if (!s) return;
+    const v = toNumber(e.target.value);
+    s.areaDoc = v > 0 ? v : null;
+    commitChanges();
+  });
+  el('rlPctSelect').addEventListener('change', e => {
+    const s = svc();
+    if (!s) return;
+    s.rlPct = Number(e.target.value) || null;
+    commitChanges();
   });
   el('mfInput').addEventListener('change', e => {
     const s = svc();

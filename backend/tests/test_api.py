@@ -387,3 +387,76 @@ def test_bloqueia_apos_tentativas_erradas():
     for _ in range(5):
         assert c.post("/auth/login", json={"email": email, "senha": "errada-errada-1"}).status_code == 401
     assert c.post("/auth/login", json={"email": email, "senha": "errada-errada-1"}).status_code == 429
+
+
+# ---------- camadas no padrão do CAR ----------
+
+# Dentro do QUADRADO: metade oeste com vegetação nativa e uma faixa de RL averbada
+VEGETACAO = [[-45.530, -23.040], [-45.525, -23.040], [-45.525, -23.030], [-45.530, -23.030]]
+RL_AVERBADA = [[-45.530, -23.040], [-45.528, -23.040], [-45.528, -23.030], [-45.530, -23.030]]
+SEDE = [[-45.522, -23.035]]
+
+
+def test_camadas_car_em_lote_com_sede_em_ponto(client, servico):
+    url = f"/servicos/{servico['id']}"
+    r = client.put(f"{url}/camadas", json={"camadas": {
+        "sede": [SEDE], "vegetacao_nativa": [VEGETACAO], "rl_averbada": [RL_AVERBADA],
+    }})
+    assert r.status_code == 200, r.text
+    assert r.json()["camadas"] == {"sede": 1, "vegetacao_nativa": 1, "rl_averbada": 1}
+
+    camadas = {c["categoria"]: c["geometry"] for c in client.get(url).json()["camadas"]}
+    assert camadas["sede"]["type"] == "Point"
+    assert camadas["sede"]["coordinates"] == SEDE[0]
+    assert camadas["vegetacao_nativa"]["type"] == "Polygon"
+    assert camadas["rl_averbada"]["type"] == "Polygon"
+
+
+def test_imovel_tem_uma_so_sede(client, servico):
+    r = client.put(f"/servicos/{servico['id']}/camadas", json={"camadas": {"sede": [SEDE, [[-45.521, -23.034]]]}})
+    assert r.status_code == 422
+    assert "uma só sede" in r.json()["detail"]
+
+
+def test_lote_de_camadas_e_atomico(client, servico):
+    url = f"/servicos/{servico['id']}"
+    r = client.put(f"{url}/camadas", json={"camadas": {
+        "vegetacao_nativa": [VEGETACAO], "pousio": [[[-45.53, -23.04], [-45.52, -23.04]]],
+    }})
+    assert r.status_code == 422
+    # A vegetação válida não foi gravada, porque o pousio inválido desfez a transação inteira
+    assert client.get(url).json()["camadas"] == []
+
+
+def test_categoria_desconhecida_recusada(client, servico):
+    r = client.put(f"/servicos/{servico['id']}/camadas", json={"camadas": {"floresta": [VEGETACAO]}})
+    assert r.status_code == 422
+
+
+def test_dados_car_do_servico_e_revisao_copia(client, servico):
+    url = f"/servicos/{servico['id']}"
+    r = client.put(url, json={"modulo_fiscal_ha": 20, "area_documental_ha": 98.5, "rl_percentual": 20})
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert float(corpo["area_documental_ha"]) == 98.5
+    assert float(corpo["rl_percentual"]) == 20
+
+    assert client.put(url, json={"rl_percentual": 150}).status_code == 422
+    assert client.put(url, json={"area_documental_ha": 0}).status_code == 422
+
+    nova = client.post(f"{url}/revisoes").json()
+    assert float(nova["modulo_fiscal_ha"]) == 20
+    assert float(nova["area_documental_ha"]) == 98.5
+    assert float(nova["rl_percentual"]) == 20
+
+
+def test_gpkg_inclui_camadas_car(client, servico, tmp_path):
+    pyogrio = pytest.importorskip("pyogrio")
+    url = f"/servicos/{servico['id']}"
+    client.put(f"{url}/perimetro", json={"ring": QUADRADO})
+    client.put(f"{url}/camadas", json={"camadas": {"sede": [SEDE], "vegetacao_nativa": [VEGETACAO]}})
+    arquivo = tmp_path / "base.gpkg"
+    arquivo.write_bytes(client.get(f"{url}/exportar.gpkg").content)
+    nomes = {nome for nome, _ in pyogrio.list_layers(arquivo)}
+    assert {"perimetro", "sede", "vegetacao_nativa"} <= nomes
+    assert pyogrio.read_info(arquivo, layer="sede")["geometry_type"] == "Point"

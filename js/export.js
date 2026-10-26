@@ -12,10 +12,16 @@ const Exporter = (() => {
   const dec = (value, digits) =>
     typeof value === 'number' ? value.toFixed(digits).replace('.', ',') : value;
 
-  // features: [{ layer, points: [[E, N], ...], closed }]. Todas na mesma zona UTM.
+  // features: [{ layer, points: [[E, N], ...], closed, point }]. Todas na mesma zona UTM.
+  // point: um só vértice, gravado como entidade POINT (ex.: sede do imóvel)
   function toDxf(features) {
     const out = ['0', 'SECTION', '2', 'ENTITIES'];
-    features.forEach(({ layer, points, closed }) => {
+    features.forEach(({ layer, points, closed, point }) => {
+      if (point) {
+        const [x, y] = points[0];
+        out.push('0', 'POINT', '8', layer, '10', x.toFixed(3), '20', y.toFixed(3), '30', '0.000');
+        return;
+      }
       out.push('0', 'LWPOLYLINE', '8', layer, '90', String(points.length), '70', closed ? '1' : '0');
       points.forEach(([x, y]) => out.push('10', x.toFixed(3), '20', y.toFixed(3)));
     });

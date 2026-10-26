@@ -54,6 +54,8 @@ CREATE TABLE servicos (
   codigo_sncr       text,
   matricula         text,
   modulo_fiscal_ha  numeric(10, 4),                    -- valor do município (INCRA); não é fixo
+  area_documental_ha numeric(14, 4) CHECK (area_documental_ha > 0),   -- área da matrícula/título
+  rl_percentual     numeric(5, 2) CHECK (rl_percentual > 0 AND rl_percentual <= 100), -- mínimo de RL; nulo = 20%
   -- Revisões (Rev 00, Rev 01...) e clonagem para desmembramento
   revisao           integer     NOT NULL DEFAULT 0,
   servico_origem_id bigint      REFERENCES servicos(id) ON DELETE SET NULL,
@@ -79,7 +81,12 @@ CREATE TABLE arquivos_dados (
 CREATE TABLE camadas_desenho (
   id           bigserial PRIMARY KEY,
   servico_id   bigint      NOT NULL REFERENCES servicos(id) ON DELETE CASCADE,
-  categoria    text        NOT NULL CHECK (categoria IN ('perimetro', 'rl', 'app', 'hidro', 'edificacao', 'curvas')),
+  categoria    text        NOT NULL CHECK (categoria IN (
+                 'perimetro', 'sede',
+                 'vegetacao_nativa', 'area_consolidada', 'pousio',
+                 'servidao', 'app', 'uso_restrito',
+                 'rl', 'rl_averbada', 'rl_aprovada', 'rl_compensacao',
+                 'hidro', 'edificacao', 'curvas')),
   ordem        integer     NOT NULL DEFAULT 0,
   geom         geometry(Geometry, 4674) NOT NULL,
   propriedades jsonb       NOT NULL DEFAULT '{}'::jsonb,
@@ -168,4 +175,5 @@ CREATE TABLE schema_migracoes (
 INSERT INTO schema_migracoes (arquivo) VALUES
   ('002_curvas_de_nivel.sql'),
   ('003_endereco_cliente.sql'),
-  ('004_usuarios_e_sessoes.sql');
+  ('004_usuarios_e_sessoes.sql'),
+  ('005_camadas_car.sql');

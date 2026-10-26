@@ -23,9 +23,17 @@ COLUNAS_CLIENTE = (
     "id, nome, cpf_cnpj, email, telefone, cep, logradouro, numero, complemento, bairro, municipio, uf"
 )
 
-CATEGORIAS_FECHADAS = {"rl", "app", "edificacao"}  # polígonos
+# Camadas de desenho no padrão do CAR (etapa Geo do SICAR), além de hidrografia e edificações
+CATEGORIAS_FECHADAS = {  # polígonos
+    "vegetacao_nativa", "area_consolidada", "pousio",
+    "servidao", "app", "uso_restrito",
+    "rl", "rl_averbada", "rl_aprovada", "rl_compensacao",
+    "edificacao",
+}
 CATEGORIAS_LINEARES = {"hidro"}  # linhas
+CATEGORIAS_PONTO = {"sede"}  # sede ou ponto de referência: um só por imóvel
 CATEGORIAS_OFFSET = CATEGORIAS_FECHADAS | CATEGORIAS_LINEARES
+CATEGORIAS_DESENHO = CATEGORIAS_OFFSET | CATEGORIAS_PONTO
 
 # Parâmetros do ST_Buffer e do ST_OffsetCurve: cantos em esquadro (mitre), limite de 5x da espessura
 OFFSET_OPTS = "join=mitre mitre_limit=5"
@@ -91,6 +99,20 @@ def _linestring(points: list) -> dict:
     if len(points) < 2:
         raise ValueError("linha precisa de pelo menos 2 pontos")
     return {"type": "LineString", "coordinates": points}
+
+
+def _point(points: list) -> dict:
+    if len(points) != 1:
+        raise ValueError("ponto precisa de exatamente uma coordenada")
+    return {"type": "Point", "coordinates": points[0]}
+
+
+def _geometria(categoria: str, points: list) -> dict:
+    if categoria in CATEGORIAS_FECHADAS:
+        return _polygon(points)
+    if categoria in CATEGORIAS_LINEARES:
+        return _linestring(points)
+    return _point(points)
 
 
 def _insert_feature(conn: Connection, servico_id: int, categoria: str, ordem: int, geojson: dict) -> None:
@@ -256,9 +278,11 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
     novo = conn.execute(
         """
         INSERT INTO servicos (empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
-                              matricula, revisao, servico_origem_id)
+                              matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
+                              revisao, servico_origem_id)
         SELECT empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
-               matricula, %(rev)s, id
+               matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
+               %(rev)s, id
         FROM servicos WHERE id = %(old)s
         RETURNING id, nome_imovel, revisao
         """,
@@ -305,13 +329,12 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
 
 def put_camada(conn: Connection, servico_id: int, categoria: str, features: list[list]) -> dict:
     _require_servico(conn, servico_id)
-    if categoria not in CATEGORIAS_OFFSET:
+    if categoria not in CATEGORIAS_DESENHO:
         raise ValueError(f"categoria '{categoria}' não aceita aqui; o perímetro tem rota própria")
+    if categoria in CATEGORIAS_PONTO and len(features) > 1:
+        raise ValueError("o imóvel tem uma só sede ou ponto de referência")
     # Valida tudo antes de apagar: uma entrada ruim não deixa a camada vazia
-    geometrias = [
-        _polygon(points) if categoria in CATEGORIAS_FECHADAS else _linestring(points)
-        for points in features
-    ]
+    geometrias = [_geometria(categoria, points) for points in features]
     conn.execute(
         "DELETE FROM camadas_desenho WHERE servico_id = %s AND categoria = %s",
         (servico_id, categoria),
@@ -319,6 +342,14 @@ def put_camada(conn: Connection, servico_id: int, categoria: str, features: list
     for ordem, geojson in enumerate(geometrias):
         _insert_feature(conn, servico_id, categoria, ordem, geojson)
     return {"categoria": categoria, "feicoes": len(geometrias)}
+
+
+def put_camadas(conn: Connection, servico_id: int, camadas: dict[str, list[list]]) -> dict:
+    """Substitui várias camadas de uma vez. Corre numa só transação: se uma falhar, nenhuma muda."""
+    return {
+        "camadas": {categoria: put_camada(conn, servico_id, categoria, features)["feicoes"]
+                    for categoria, features in camadas.items()}
+    }
 
 
 def put_perimetro(
@@ -441,10 +472,14 @@ def update_servico(conn: Connection, servico_id: int, data) -> dict:
     conn.execute(
         """
         UPDATE servicos
-        SET matricula = %s, codigo_car = %s, codigo_sncr = %s, modulo_fiscal_ha = %s
+        SET matricula = %s, codigo_car = %s, codigo_sncr = %s, modulo_fiscal_ha = %s,
+            area_documental_ha = %s, rl_percentual = %s
         WHERE id = %s
         """,
-        (data.matricula, data.codigo_car, data.codigo_sncr, data.modulo_fiscal_ha, servico_id),
+        (
+            data.matricula, data.codigo_car, data.codigo_sncr, data.modulo_fiscal_ha,
+            data.area_documental_ha, data.rl_percentual, servico_id,
+        ),
     )
     return get_servico(conn, servico_id)
 

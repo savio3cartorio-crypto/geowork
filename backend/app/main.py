@@ -15,7 +15,7 @@ from .auth import (
 )
 from .config import settings
 from .db import connect
-from .schemas import ArquivoIn, CamadaIn, ClienteIn, CurvasIn, LoginIn, MemorialDocxIn, OffsetIn, PerimetroIn, ServicoIn, ServicoUpdate
+from .schemas import ArquivoIn, CamadaIn, CamadasIn, ClienteIn, CurvasIn, LoginIn, MemorialDocxIn, OffsetIn, PerimetroIn, ServicoIn, ServicoUpdate
 
 # Raiz do projeto: onde ficam index.html, css/ e js/ (servidos pela própria API)
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,6 +126,12 @@ def salvar_perimetro(servico_id: int, data: PerimetroIn):
     with connect() as conn:
         resumo = repo.put_perimetro(conn, servico_id, data.ring, data.vertices, data.confrontantes)
         return {"servico_id": servico_id, **resumo}
+
+
+@api.put("/servicos/{servico_id}/camadas")
+def salvar_camadas(servico_id: int, data: CamadasIn):
+    with connect() as conn:
+        return {"servico_id": servico_id, **repo.put_camadas(conn, servico_id, data.camadas)}
 
 
 @api.put("/servicos/{servico_id}/camadas/{categoria}")

@@ -6,7 +6,15 @@ from pydantic import BaseModel, Field, field_validator
 Coord = tuple[float, float]  # [lng, lat] em SIRGAS 2000 geográfico
 
 TipoDivisa = Literal["PESSOA", "FAIXA_DOMINIO", "CORREGO_RIO", "ESTRADA", "OUTRO"]
-CategoriaLinear = Literal["rl", "app", "hidro", "edificacao"]
+# Camadas que aceitam OFFSET (polígonos e linhas); a sede é ponto e o perímetro tem rota própria
+CategoriaLinear = Literal[
+    "vegetacao_nativa", "area_consolidada", "pousio", "servidao", "app", "uso_restrito",
+    "rl", "rl_averbada", "rl_aprovada", "rl_compensacao", "hidro", "edificacao",
+]
+CategoriaDesenho = Literal[
+    "sede", "vegetacao_nativa", "area_consolidada", "pousio", "servidao", "app", "uso_restrito",
+    "rl", "rl_averbada", "rl_aprovada", "rl_compensacao", "hidro", "edificacao",
+]
 
 # Número do CAR no SICAR: UF, código IBGE do município (7 dígitos) e 32 caracteres hexadecimais
 PADRAO_CAR = re.compile(r"^[A-Z]{2}-\d{7}-[0-9A-F]{32}$")
@@ -96,6 +104,12 @@ class CamadaIn(BaseModel):
     features: list[list[Coord]] = Field(default_factory=list)
 
 
+class CamadasIn(BaseModel):
+    """Várias camadas de uma vez: categoria -> feições. Categorias ausentes não mudam."""
+
+    camadas: dict[CategoriaDesenho, list[list[Coord]]]
+
+
 class VerticeMeta(BaseModel):
     codigo: str | None = None
     metodo: str | None = None
@@ -137,6 +151,8 @@ class ServicoUpdate(BaseModel):
     codigo_car: str | None = None
     codigo_sncr: str | None = None
     modulo_fiscal_ha: float | None = Field(default=None, gt=0)
+    area_documental_ha: float | None = Field(default=None, gt=0)
+    rl_percentual: float | None = Field(default=None, gt=0, le=100)
 
     @field_validator("codigo_car")
     @classmethod

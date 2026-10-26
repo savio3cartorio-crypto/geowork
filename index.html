@@ -135,11 +135,6 @@
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
           <h3 class="text-xs font-bold uppercase text-slate-300">Camada ativa</h3>
           <select id="activeLayerSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200">
-            <option value="perimetro">Perímetro oficial do imóvel</option>
-            <option value="rl">Reserva Legal (CAR)</option>
-            <option value="app">APP</option>
-            <option value="hidro">Curso d'água (linha)</option>
-            <option value="edificacao">Edificação / benfeitoria</option>
           </select>
           <p class="text-[11px] text-slate-400">Clique no mapa para marcar vértices. Ou use a barra CAD: <code>120.50 85.25</code> (distância m, azimute °). Depois, FECHAR.</p>
           <div class="grid grid-cols-3 gap-1">
@@ -150,19 +145,39 @@
         </div>
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
-          <h3 class="text-xs font-bold uppercase text-emerald-400">Quadro ambiental CAR</h3>
+          <h3 class="text-xs font-bold uppercase text-emerald-400">Quadro de áreas do CAR</h3>
           <div class="text-xs space-y-1.5">
-            <div class="flex justify-between"><span>Área total do imóvel</span><span id="carTotalHa" class="font-mono font-bold">0,0000 ha</span></div>
-            <div class="flex justify-between text-emerald-300"><span>Reserva Legal de referência</span><span id="carRlExig" class="font-mono text-right">0,0000 ha</span></div>
-            <div class="flex justify-between text-emerald-300"><span>Reserva Legal desenhada</span><span id="carRlDesenhada" class="font-mono">0,0000 ha</span></div>
-            <div class="flex justify-between text-sky-300"><span>APP desenhada</span><span id="carApp" class="font-mono">0,0000 ha</span></div>
             <div class="flex justify-between items-center gap-2">
               <span>Módulo fiscal (ha, do INCRA/município)</span>
               <input id="mfInput" type="text" placeholder="ex.: 15" class="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono text-right">
             </div>
-            <div class="flex justify-between text-sky-300"><span>Quantidade de módulos</span><span id="carMf" class="font-mono text-right">-</span></div>
+            <div class="flex justify-between items-center gap-2">
+              <span>Área da matrícula (ha)</span>
+              <input id="areaDocInput" type="text" placeholder="ex.: 48,4" class="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono text-right">
+            </div>
+            <div class="flex justify-between items-center gap-2">
+              <span>Reserva Legal mínima</span>
+              <select id="rlPctSelect" class="w-40 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[11px]">
+                <option value="20">20% — demais regiões (art. 12, II)</option>
+                <option value="35">35% — cerrado na Amazônia Legal</option>
+                <option value="80">80% — floresta na Amazônia Legal</option>
+              </select>
+            </div>
           </div>
-          <p id="carStatus" class="text-[11px] text-amber-300"></p>
+          <table class="w-full text-[11px]">
+            <thead>
+              <tr class="text-slate-400 border-b border-slate-700"><th class="text-left font-normal">Classe</th><th class="text-right font-normal">ha</th><th class="text-right font-normal">% imóvel</th></tr>
+            </thead>
+            <tbody id="carQuadro"></tbody>
+          </table>
+          <div class="flex justify-between text-xs text-sky-300"><span>Quantidade de módulos fiscais</span><span id="carMf" class="font-mono text-right">-</span></div>
+          <p class="text-[10px] text-slate-500">Áreas planas em UTM SIRGAS 2000, recortadas pelo perímetro. Área líquida = imóvel − servidão administrativa.</p>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-amber-300">Pré-análise do CAR</h3>
+          <ul id="carPreAnalise" class="text-[11px] space-y-1"></ul>
+          <p class="text-[10px] text-slate-500">Mesmos critérios de prioridade do Módulo de Análise do SICAR-SP (2016). Não substitui a análise do órgão ambiental.</p>
         </div>
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
@@ -292,6 +307,7 @@
   <script src="js/export.js"></script>
   <script src="js/memorial.js"></script>
   <script src="js/contours.js"></script>
+  <script src="js/car.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

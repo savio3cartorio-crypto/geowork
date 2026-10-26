@@ -14,8 +14,17 @@ CRS = "EPSG:4674"
 # camada -> (tipo de geometria, colunas (nome, tipo)); os tipos são 'int', 'float' ou 'str'
 ESQUEMAS = {
     "perimetro": ("Polygon", [("ordem", "int")]),
-    "rl": ("Polygon", [("ordem", "int")]),
+    "sede": ("Point", [("ordem", "int")]),
+    "vegetacao_nativa": ("Polygon", [("ordem", "int")]),
+    "area_consolidada": ("Polygon", [("ordem", "int")]),
+    "pousio": ("Polygon", [("ordem", "int")]),
+    "servidao": ("Polygon", [("ordem", "int")]),
     "app": ("Polygon", [("ordem", "int")]),
+    "uso_restrito": ("Polygon", [("ordem", "int")]),
+    "rl": ("Polygon", [("ordem", "int")]),
+    "rl_averbada": ("Polygon", [("ordem", "int")]),
+    "rl_aprovada": ("Polygon", [("ordem", "int")]),
+    "rl_compensacao": ("Polygon", [("ordem", "int")]),
     "edificacao": ("Polygon", [("ordem", "int")]),
     "hidro": ("LineString", [("ordem", "int")]),
     "curvas": ("MultiLineString", [("ordem", "int"), ("cota", "float"), ("intervalo", "float")]),
