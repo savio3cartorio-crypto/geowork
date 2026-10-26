@@ -767,6 +767,16 @@ def _anexo(client, servico_id, nome, conteudo, pasta="documentos"):
     })
 
 
+def test_anexo_kml_aceito_e_conteudo_conferido(client, servico, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    kml = b'<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"></kml>'
+    r = _anexo(client, servico["id"], "perimetro.kml", kml, pasta="plantas")
+    assert r.status_code == 201, r.text
+    assert r.json()["tipo"] == "KML"
+    falso = _anexo(client, servico["id"], "falso.kml", b"isto nao e um kml")
+    assert falso.status_code == 422
+
+
 def test_anexos_de_projeto_tipos_e_pastas(client, servico, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "storage_dir", tmp_path)
     sid = servico["id"]

@@ -524,7 +524,7 @@ def delete_perimetro(conn: Connection, servico_id: int) -> dict:
 
 LIMITE_ARQUIVO_BYTES = 25 * 1024 * 1024
 TIPOS_ARQUIVO = {".pdf": "PDF", ".dxf": "DXF", ".docx": "DOCX", ".xlsx": "XLSX",
-                 ".jpg": "JPG", ".jpeg": "JPG", ".png": "PNG", ".csv": "CSV", ".txt": "TXT"}
+                 ".jpg": "JPG", ".jpeg": "JPG", ".png": "PNG", ".csv": "CSV", ".txt": "TXT", ".kml": "KML"}
 
 
 def _confere_conteudo(extensao: str, conteudo: bytes) -> None:
@@ -535,6 +535,8 @@ def _confere_conteudo(extensao: str, conteudo: bytes) -> None:
     }
     if extensao == ".dxf":
         ok = b"SECTION" in conteudo[:4096]
+    elif extensao == ".kml":
+        ok = b"<kml" in conteudo[:4096].lower()
     elif extensao in (".csv", ".txt"):
         try:
             conteudo.decode("utf-8")
@@ -551,7 +553,7 @@ def salvar_arquivo(conn: Connection, servico_id: int, data: ArquivoIn, storage_d
     _require_servico(conn, servico_id)
     extensao = Path(data.nome_arquivo).suffix.lower()
     if extensao not in TIPOS_ARQUIVO:
-        raise ValueError("tipo de arquivo não aceito: use PDF, DXF, DOCX, XLSX, CSV, TXT, JPG ou PNG")
+        raise ValueError("tipo de arquivo não aceito: use PDF, DXF, KML, DOCX, XLSX, CSV, TXT, JPG ou PNG")
     try:
         conteudo = base64.b64decode(data.conteudo_base64, validate=True)
     except binascii.Error as exc:
