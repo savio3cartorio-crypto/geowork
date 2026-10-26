@@ -51,6 +51,94 @@
     </div>
   </header>
 
+  <!-- MENU: funcionalidades agrupadas. Cada item aciona o botão ou a seção já existente -->
+  <nav id="menuBar" aria-label="Menu principal" class="shrink-0 relative z-40 flex flex-wrap items-center gap-1 px-3 py-1 bg-slate-950 border-b border-slate-800 text-xs">
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Projeto ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnNovoCliente">Novo cliente</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnRev" data-precisa-servico>Nova revisão do serviço</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnQuote">Croqui de orçamento</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnSair">Encerrar sessão</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre data-pilar-grupo="dados" aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Dados ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="#fileImport">Importar levantamento</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="#btnSalvarEndereco">Endereço do cliente</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="#cotaInput">Curvas de nível</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="[data-doc='matricula']">Documentos do imóvel</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="#arquivoList">Arquivos do projeto</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="dados" data-foco="#btnRegistrarSituacao" data-precisa-servico>Situação do CAR</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre data-pilar-grupo="desenhos" aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Desenho ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-ir="desenhos" data-precisa-servico>Camadas do serviço</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnFechar" data-precisa-servico>Fechar polígono</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnDesfazer" data-precisa-servico>Desfazer</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnLimparCamada" data-precisa-servico>Limpar camada ativa</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre data-pilar-grupo="limites" aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Limites ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-ir="limites" data-precisa-servico>Vértices e confrontantes</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="limites" data-foco="#statAreaHa" data-precisa-servico>Áreas e perímetro</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnExemplo">Carregar exemplo</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnLimparPerimetro" data-precisa-servico>Limpar perímetro</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">CAR ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-ir="desenhos" data-precisa-servico>Quadro de áreas</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnSobreposicoes" data-precisa-servico>Consultar bases públicas</button>
+        <button type="button" role="menuitem" class="menu-item" data-ir="desenhos" data-foco="#appLargura" data-precisa-servico>APP por curso d'água</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnRelatorioCar" data-precisa-servico>Gerar relatório do CAR</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre data-pilar-grupo="entregas" aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Entregas ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-72 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnGeorref" data-precisa-servico>Georreferenciamento completo</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnPacote" data-precisa-servico>Pacote do projeto (.zip)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnConferir" data-precisa-servico>Conferir projeto</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnMemNotarial" data-precisa-servico>Memorial notarial</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnMemTabular" data-precisa-servico>Memorial tabular</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnMemDocx" data-precisa-servico>Memorial (.docx)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnSigef" data-precisa-servico>Planilha SIGEF (CSV)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnDxf" data-precisa-servico>Planta (.DXF)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnGpkg" data-precisa-servico>Base vetorial (.gpkg)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnSicar" data-precisa-servico>Pacote SICAR (shapefiles)</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnGeojson" data-precisa-servico>GeoJSON</button>
+      </div>
+    </div>
+
+    <div class="relative" data-menu>
+      <button type="button" data-abre aria-haspopup="menu" aria-expanded="false" class="px-2.5 py-1.5 rounded font-semibold text-slate-300 hover:bg-slate-800 aria-expanded:bg-slate-800">Mapa ▾</button>
+      <div role="menu" class="menu-drop hidden absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded shadow-xl py-1">
+        <button type="button" role="menuitem" class="menu-item" data-base="sat">Satélite</button>
+        <button type="button" role="menuitem" class="menu-item" data-base="hib">Híbrido (Esri)</button>
+        <button type="button" role="menuitem" class="menu-item" data-base="hibosm">Híbrido OSM</button>
+        <button type="button" role="menuitem" class="menu-item" data-base="osm">Ruas</button>
+        <button type="button" role="menuitem" class="menu-item" data-base="cad">Modo CAD</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnIdentificar">Identificar feição</button>
+        <button type="button" role="menuitem" class="menu-item" data-foco="#camadasPublicas">Camadas públicas</button>
+        <button type="button" role="menuitem" class="menu-item" data-clique="btnMapaOnr">Mapa do ONR</button>
+        <button type="button" role="menuitem" class="menu-item" data-foco="#searchInput">Ir para coordenada ou município</button>
+      </div>
+    </div>
+  </nav>
+
   <div class="flex flex-1 min-h-0 relative">
 
     <!-- SIDEBAR: OS 4 PILARES -->
@@ -353,7 +441,7 @@
     </aside>
 
     <!-- MAPA E CANVAS CAD -->
-    <main class="flex-1 min-w-0 relative flex flex-col">
+    <main class="flex-1 min-w-0 relative z-0 flex flex-col">
       <div id="map" class="flex-1"></div>
 
       <!-- Painel flutuante: modo de base e camadas públicas -->

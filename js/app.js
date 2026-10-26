@@ -1399,6 +1399,7 @@
     docsToInputs();
     renderEndereco();
     updateZoneLabel();
+    atualizarMenu();
   }
 
   function commitChanges() {
@@ -1955,7 +1956,70 @@
       btn.classList.toggle('text-slate-400', !on);
       btn.classList.toggle('border-transparent', !on);
     });
+    atualizarMenu();
   }
+
+  // ---------- Menu superior ----------
+  // Os itens só acionam botões e seções já existentes. Itens com data-precisa-servico ficam
+  // desabilitados sem serviço ativo, e o grupo do pilar aberto fica destacado.
+  const menuBar = el('menuBar');
+  const dropDe = botao => botao.parentElement.querySelector('.menu-drop');
+
+  function fecharMenus() {
+    menuBar.querySelectorAll('.menu-drop').forEach(d => d.classList.add('hidden'));
+    menuBar.querySelectorAll('[data-abre]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+  }
+
+  function abrirMenu(botao) {
+    fecharMenus();
+    dropDe(botao).classList.remove('hidden');
+    botao.setAttribute('aria-expanded', 'true');
+  }
+
+  function atualizarMenu() {
+    const temServico = Boolean(svc());
+    menuBar.querySelectorAll('[data-precisa-servico]').forEach(item => {
+      item.disabled = !temServico;
+      item.title = temServico ? '' : 'Crie ou selecione um serviço primeiro';
+    });
+    const pilarAtual = document.querySelector('.pillar:not(.hidden)')?.id.replace('pillar-', '');
+    menuBar.querySelectorAll('[data-pilar-grupo]').forEach(b => {
+      const on = b.dataset.pilarGrupo === pilarAtual;
+      b.classList.toggle('text-sky-400', on);
+      b.classList.toggle('bg-slate-800', on);
+    });
+  }
+
+  function executarItem(item) {
+    if (item.disabled) return;
+    fecharMenus();
+    if (item.dataset.ir) switchPillar(item.dataset.ir);
+    if (item.dataset.base) setBaseMode(item.dataset.base);
+    if (item.dataset.foco) document.querySelector(item.dataset.foco)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (item.dataset.clique) {
+      const alvo = el(item.dataset.clique);
+      const pilar = alvo.closest('.pillar');
+      if (pilar) switchPillar(pilar.id.replace('pillar-', ''));
+      alvo.click();
+    }
+  }
+
+  menuBar.addEventListener('click', e => {
+    const abre = e.target.closest('[data-abre]');
+    if (abre) return dropDe(abre).classList.contains('hidden') ? abrirMenu(abre) : fecharMenus();
+    const item = e.target.closest('.menu-item');
+    if (item) executarItem(item);
+  });
+
+  // Com um menu aberto, passar o mouse por outro grupo troca de menu
+  menuBar.addEventListener('mouseover', e => {
+    const abre = e.target.closest('[data-abre]');
+    if (abre && menuBar.querySelector('.menu-drop:not(.hidden)') && dropDe(abre).classList.contains('hidden')) abrirMenu(abre);
+  });
+
+  document.addEventListener('click', e => {
+    if (!menuBar.contains(e.target)) fecharMenus();
+  });
 
   // ---------- Eventos ----------
   map.on('click', e => {
@@ -1974,6 +2038,7 @@
   });
 
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') fecharMenus();
     if (e.key === 'Escape' && identificacao.ligada) ligarIdentificar(false);
     else if (e.key === 'Escape' && ui.draft) {
       ui.draft = null;
