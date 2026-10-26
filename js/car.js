@@ -13,7 +13,7 @@ const Car = (() => {
   const LIMITE_PEQUENA_MF = 4; // pequena propriedade ou posse rural: até 4 módulos fiscais (art. 3º, V)
   // Diferença aceita entre área desenhada e da matrícula. O SICAR-SP usa um percentual por classe de tamanho;
   // este é o valor adotado pelo GeoWork até haver a tabela oficial.
-  const TOLERANCIA_AREA_DOC_PCT = 5;
+  const TOLERANCIA_AREA_PCT = 5;
   const RL_PERCENTUAL_PADRAO = 20; // fora da Amazônia Legal (art. 12, II)
 
   const COBERTURA = ['vegetacao_nativa', 'area_consolidada', 'pousio'];
@@ -68,12 +68,22 @@ const Car = (() => {
   // Números das mensagens no formato brasileiro (vírgula decimal)
   const num = (v, casas) => v.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
 
+  // Compara duas áreas em hectares e devolve [nível, texto]; diferença acima da tolerância é aviso
+  function compararAreas(rotuloA, areaA, rotuloB, areaB) {
+    const difPct = ((areaB - areaA) / areaA) * 100;
+    const texto = `${rotuloA} ${num(areaA, 4)} ha × ${rotuloB} ${num(areaB, 4)} ha ` +
+      `(${difPct >= 0 ? '+' : ''}${num(difPct, 2)}%)`;
+    return Math.abs(difPct) > TOLERANCIA_AREA_PCT
+      ? ['aviso', `${texto}: acima de ${TOLERANCIA_AREA_PCT}%. Confira o desenho ou a documentação.`]
+      : ['ok', `${texto}.`];
+  }
+
   /*
    * entrada: { camadas: {categoria: [anéis [lng, lat]]}, rotulos: {categoria: texto},
-   *            mfHa, rlPercentual, areaDocumentalHa }
+   *            mfHa, rlPercentual, areaDocumentalHa, areaCcirHa, areaCarHa }
    * Devolve { quadro, checks }. checks: [nível, texto], com nível 'ok', 'info', 'aviso' ou 'erro'.
    */
-  function analisar({ camadas, rotulos, mfHa, rlPercentual, areaDocumentalHa }) {
+  function analisar({ camadas, rotulos, mfHa, rlPercentual, areaDocumentalHa, areaCcirHa, areaCarHa }) {
     const checks = [];
     const nome = cat => rotulos[cat] || cat;
     const perimetro = camadas.perimetro && camadas.perimetro[0];
@@ -185,17 +195,18 @@ const Car = (() => {
       checks.push(['aviso', "Há curso d'água desenhado e nenhuma APP declarada."]);
     }
 
-    // Área desenhada x área da matrícula: diferença grande também é critério de prioridade no SICAR-SP
-    if (areaDocumentalHa) {
-      const difPct = ((areaImovelHa - areaDocumentalHa) / areaDocumentalHa) * 100;
-      const texto = `Área desenhada ${num(areaImovelHa, 4)} ha × matrícula ${num(areaDocumentalHa, 4)} ha ` +
-        `(${difPct >= 0 ? '+' : ''}${num(difPct, 2)}%)`;
-      checks.push(Math.abs(difPct) > TOLERANCIA_AREA_DOC_PCT
-        ? ['aviso', `${texto}: acima de ${TOLERANCIA_AREA_DOC_PCT}%. Confira o desenho ou a documentação.`]
-        : ['ok', `${texto}.`]);
-    } else {
-      checks.push(['info', 'Informe a área da matrícula para comparar com a área desenhada.']);
-    }
+    // Área desenhada x áreas declaradas em outros cadastros; cadastros que divergem entre si também são conferidos
+    const declaradas = [
+      { rotulo: 'matrícula', de: 'da matrícula', ha: areaDocumentalHa },
+      { rotulo: 'CCIR/SNCR', de: 'do CCIR/SNCR', ha: areaCcirHa },
+      { rotulo: 'recibo do CAR', de: 'do recibo do CAR', ha: areaCarHa },
+    ];
+    declaradas.forEach(({ rotulo, de, ha }) => {
+      checks.push(ha
+        ? compararAreas('Área desenhada', areaImovelHa, rotulo, ha)
+        : ['info', `Informe a área ${de} para comparar com a área desenhada.`]);
+    });
+    if (areaDocumentalHa && areaCcirHa) checks.push(compararAreas('Matrícula', areaDocumentalHa, 'CCIR/SNCR', areaCcirHa));
 
     return { quadro, checks };
   }

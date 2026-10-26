@@ -450,6 +450,20 @@ def test_dados_car_do_servico_e_revisao_copia(client, servico):
     assert float(nova["rl_percentual"]) == 20
 
 
+def test_areas_de_referencia_ccir_e_car_gravam_e_copiam(client, servico):
+    url = f"/servicos/{servico['id']}"
+    r = client.put(url, json={"area_ccir_ha": 102.3, "area_car_declarada_ha": 101.9})
+    assert r.status_code == 200, r.text
+    assert float(r.json()["area_ccir_ha"]) == 102.3
+    assert float(r.json()["area_car_declarada_ha"]) == 101.9
+
+    assert client.put(url, json={"area_ccir_ha": -1}).status_code == 422
+
+    nova = client.post(f"{url}/revisoes").json()
+    assert float(nova["area_ccir_ha"]) == 102.3
+    assert float(nova["area_car_declarada_ha"]) == 101.9
+
+
 def test_gpkg_inclui_camadas_car(client, servico, tmp_path):
     pyogrio = pytest.importorskip("pyogrio")
     url = f"/servicos/{servico['id']}"

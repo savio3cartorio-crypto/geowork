@@ -153,6 +153,8 @@ class ServicoUpdate(BaseModel):
     codigo_sncr: str | None = None
     modulo_fiscal_ha: float | None = Field(default=None, gt=0)
     area_documental_ha: float | None = Field(default=None, gt=0)
+    area_ccir_ha: float | None = Field(default=None, gt=0)
+    area_car_declarada_ha: float | None = Field(default=None, gt=0)
     rl_percentual: float | None = Field(default=None, gt=0, le=100)
 
     @field_validator("codigo_car")

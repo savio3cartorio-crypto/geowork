@@ -55,6 +55,8 @@ CREATE TABLE servicos (
   matricula         text,
   modulo_fiscal_ha  numeric(10, 4),                    -- valor do município (INCRA); não é fixo
   area_documental_ha numeric(14, 4) CHECK (area_documental_ha > 0),   -- área da matrícula/título
+  area_ccir_ha     numeric(14, 4) CHECK (area_ccir_ha > 0),          -- área no CCIR (SNCR)
+  area_car_declarada_ha numeric(14, 4) CHECK (area_car_declarada_ha > 0), -- área do recibo do CAR
   rl_percentual     numeric(5, 2) CHECK (rl_percentual > 0 AND rl_percentual <= 100), -- mínimo de RL; nulo = 20%
   -- Acompanhamento do CAR depois da inscrição (situações do SICAR-SP); histórico em car_situacoes
   car_situacao      text        NOT NULL DEFAULT 'nao_inscrito' CHECK (car_situacao IN (
@@ -212,4 +214,5 @@ INSERT INTO schema_migracoes (arquivo) VALUES
   ('006_servico_unico_por_cliente.sql'),
   ('007_acompanhamento_car.sql'),
   ('008_pastas_do_projeto.sql'),
-  ('009_art_nos_anexos.sql');
+  ('009_art_nos_anexos.sql'),
+  ('010_areas_de_referencia.sql');

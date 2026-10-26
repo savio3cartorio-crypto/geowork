@@ -55,6 +55,8 @@
       rev,
       mf: null,
       areaDoc: null,
+      areaCcir: null,
+      areaCar: null,
       rlPct: null,
       layers: emptyLayers(),
       meta: { codes: [], vertex: [], segs: [] },
@@ -152,6 +154,8 @@
       rev: x.revisao,
       mf: null,
       areaDoc: null,
+      areaCcir: null,
+      areaCar: null,
       rlPct: null,
       remote: true,
       layers: emptyLayers(),
@@ -166,6 +170,8 @@
       ...summaryOf(d),
       mf: d.modulo_fiscal_ha ? Number(d.modulo_fiscal_ha) : null,
       areaDoc: d.area_documental_ha ? Number(d.area_documental_ha) : null,
+      areaCcir: d.area_ccir_ha ? Number(d.area_ccir_ha) : null,
+      areaCar: d.area_car_declarada_ha ? Number(d.area_car_declarada_ha) : null,
       rlPct: d.rl_percentual ? Number(d.rl_percentual) : null,
       docs: { matricula: d.matricula || '', incra: d.codigo_sncr || '', car: d.codigo_car || '' },
     };
@@ -246,6 +252,8 @@
         codigo_car: s.docs.car || null,
         modulo_fiscal_ha: s.mf || null,
         area_documental_ha: s.areaDoc || null,
+        area_ccir_ha: s.areaCcir || null,
+        area_car_declarada_ha: s.areaCar || null,
         rl_percentual: s.rlPct || null,
       },
     });
@@ -1148,6 +1156,8 @@
     });
     el('mfInput').value = s && s.mf ? s.mf : '';
     el('areaDocInput').value = s && s.areaDoc ? s.areaDoc : '';
+    el('areaCcirInput').value = s && s.areaCcir ? s.areaCcir : '';
+    el('areaCarInput').value = s && s.areaCar ? s.areaCar : '';
     el('rlPctSelect').value = String((s && s.rlPct) || 20);
   }
 
@@ -1209,6 +1219,8 @@
           mfHa: s.mf,
           rlPercentual: s.rlPct,
           areaDocumentalHa: s.areaDoc,
+          areaCcirHa: s.areaCcir,
+          areaCarHa: s.areaCar,
         });
       } catch (err) {
         console.error('Falha na pré-análise do CAR:', err);
@@ -2349,12 +2361,15 @@
     ui.layer = e.target.value;
     refresh();
   });
-  el('areaDocInput').addEventListener('change', e => {
-    const s = svc();
-    if (!s) return;
-    const v = toNumber(e.target.value);
-    s.areaDoc = v > 0 ? v : null;
-    commitChanges();
+  // Áreas de referência: matrícula, CCIR e recibo do CAR
+  [['areaDocInput', 'areaDoc'], ['areaCcirInput', 'areaCcir'], ['areaCarInput', 'areaCar']].forEach(([input, campo]) => {
+    el(input).addEventListener('change', e => {
+      const s = svc();
+      if (!s) return;
+      const v = toNumber(e.target.value);
+      s[campo] = v > 0 ? v : null;
+      commitChanges();
+    });
   });
   el('rlPctSelect').addEventListener('change', e => {
     const s = svc();
@@ -2438,6 +2453,7 @@
     if (!s) return msg('Crie ou selecione um serviço antes de gerar o relatório do CAR.', true);
     const analise = Car.analisar({
       camadas: s.layers, rotulos: ROTULOS, mfHa: s.mf, rlPercentual: s.rlPct, areaDocumentalHa: s.areaDoc,
+      areaCcirHa: s.areaCcir, areaCarHa: s.areaCar,
     });
     if (!analise.quadro) return msg('Desenhe ou importe o perímetro antes de gerar o relatório do CAR.', true);
     const base = `car-${s.id}-rev${pad2(s.rev)}`;

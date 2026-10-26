@@ -286,11 +286,11 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
     novo = conn.execute(
         """
         INSERT INTO servicos (empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
-                              matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
-                              car_situacao, car_situacao_data, car_prazo, revisao, servico_origem_id)
+                              matricula, modulo_fiscal_ha, area_documental_ha, area_ccir_ha,
+                              area_car_declarada_ha, rl_percentual, car_situacao, car_situacao_data, car_prazo, revisao, servico_origem_id)
         SELECT empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
-               matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
-               car_situacao, car_situacao_data, car_prazo, %(rev)s, id
+               matricula, modulo_fiscal_ha, area_documental_ha, area_ccir_ha,
+               area_car_declarada_ha, rl_percentual, car_situacao, car_situacao_data, car_prazo, %(rev)s, id
         FROM servicos WHERE id = %(old)s
         RETURNING id, nome_imovel, revisao
         """,
@@ -496,12 +496,14 @@ def update_servico(conn: Connection, servico_id: int, data) -> dict:
         """
         UPDATE servicos
         SET matricula = %s, codigo_car = %s, codigo_sncr = %s, modulo_fiscal_ha = %s,
-            area_documental_ha = %s, rl_percentual = %s
+            area_documental_ha = %s, area_ccir_ha = %s, area_car_declarada_ha = %s,
+            rl_percentual = %s
         WHERE id = %s
         """,
         (
             data.matricula, data.codigo_car, data.codigo_sncr, data.modulo_fiscal_ha,
-            data.area_documental_ha, data.rl_percentual, servico_id,
+            data.area_documental_ha, data.area_ccir_ha, data.area_car_declarada_ha,
+            data.rl_percentual, servico_id,
         ),
     )
     return get_servico(conn, servico_id)
