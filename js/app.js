@@ -711,7 +711,8 @@
     const srvSel = el('serviceSelect');
     srvSel.textContent = '';
     const list = state.services.filter(x => String(x.clientId) === String(state.activeClientId));
-    if (!list.length) srvSel.append(opt('', '(nenhum serviço: clique em +Rev para criar)', true, true));
+    if (!state.clients.length) srvSel.append(opt('', '(cadastre um cliente em +Cliente)', true, true));
+    else if (!list.length) srvSel.append(opt('', '(nenhum serviço: clique em +Rev para criar)', true, true));
     list.forEach(x =>
       srvSel.append(opt(x.id, `${x.name} [Rev ${pad2(x.rev)}]`, String(x.id) === String(state.activeServiceId)))
     );
