@@ -265,14 +265,15 @@
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
           <h3 class="text-xs font-bold uppercase text-slate-300">APP por curso d'água</h3>
-          <p class="text-[11px] text-slate-400">Desenhe o curso na camada "Curso d'água" e gere a faixa de APP. A faixa é fixa e simplificada.</p>
-          <div class="flex gap-2 items-center text-xs">
-            <select id="bufferDist" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
-              <option value="30">30 m</option>
-              <option value="50">50 m</option>
-            </select>
+          <p class="text-[11px] text-slate-400">Desenhe o curso na camada "Curso d'água". A faixa sai da largura do leito, pelo art. 4º, I, da Lei 12.651/2012.</p>
+          <div class="flex gap-2 items-end text-xs">
+            <label class="text-[10px] text-slate-400">Largura média do leito (m)
+              <input id="appLargura" type="number" min="0.1" step="0.1" placeholder="ex.: 4"
+                class="mt-0.5 block w-28 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
             <button id="btnGerarApp" type="button" class="bg-sky-600 hover:bg-sky-500 px-3 py-1 rounded text-xs">Gerar APP</button>
           </div>
+          <p class="text-[10px] text-slate-500">Faixa: até 10 m → 30 m · de 10 a 50 m → 50 m · de 50 a 200 m → 100 m · de 200 a 600 m → 200 m · acima de 600 m → 500 m, medidas da borda do leito. Use a largura média de cada curso; o técnico confere. Nascentes e lagos ainda não entram.</p>
         </div>
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3">

@@ -200,5 +200,26 @@ const Car = (() => {
     return { quadro, checks };
   }
 
-  return { analisar, areaM2, COBERTURA, RL_DO_IMOVEL, RL_TODAS };
+  // Faixa marginal de APP de curso d'água natural (Lei 12.651/2012, art. 4º, I), medida da borda do leito
+  function faixaAppM(larguraM) {
+    if (!(larguraM > 0)) return null;
+    if (larguraM < 10) return 30;
+    if (larguraM < 50) return 50;
+    if (larguraM < 200) return 100;
+    if (larguraM < 600) return 200;
+    return 500;
+  }
+
+  // Anel de APP ao redor de cada linha de água: metade da largura do leito mais a faixa legal
+  function appDeCursos(linhas, larguraM) {
+    const raioKm = (larguraM / 2 + faixaAppM(larguraM)) / 1000;
+    return linhas
+      .filter(linha => linha.length >= 2)
+      .flatMap(linha => {
+        const buf = turf.buffer(turf.lineString(linha), raioKm, { units: 'kilometers', steps: 16 });
+        return buf.geometry.type === 'Polygon' ? [buf.geometry.coordinates[0]] : buf.geometry.coordinates.map(p => p[0]);
+      });
+  }
+
+  return { analisar, areaM2, COBERTURA, RL_DO_IMOVEL, RL_TODAS, faixaAppM, appDeCursos };
 })();

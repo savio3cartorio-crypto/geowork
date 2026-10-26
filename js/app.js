@@ -1595,13 +1595,11 @@
     if (!s.layers.hidro.length) {
       return msg('Desenhe o curso d\'água na camada "Curso d\'água" antes de gerar a APP.', true);
     }
-    const metros = el('bufferDist').value;
-    s.layers.hidro.forEach(linha => {
-      const buf = turf.buffer(turf.lineString(linha), parseFloat(metros) / 1000, { units: 'kilometers' });
-      const poligonos = buf.geometry.type === 'Polygon' ? [buf.geometry.coordinates] : buf.geometry.coordinates;
-      poligonos.forEach(p => s.layers.app.push(p[0]));
-    });
-    msg(`APP gerada com faixa de ${metros} m. Faixa fixa simplificada: a largura legal depende do curso e da nascente.`);
+    const largura = parseFloat(el('appLargura').value);
+    if (!(largura > 0)) return msg('Informe a largura média do leito do curso d\'água, em metros.', true);
+    if (s.layers.app.length && !confirm(`O imóvel já tem ${s.layers.app.length} polígono(s) de APP. Substituir pela APP calculada?`)) return;
+    s.layers.app = Car.appDeCursos(s.layers.hidro, largura);
+    msg(`APP gerada: faixa de ${Car.faixaAppM(largura)} m a partir da borda do leito, com leito de ${fmt(largura, 1)} m (art. 4º, I, da Lei 12.651/2012). Nascentes e lagos não entram nesta versão.`);
     commitChanges();
   }
 
