@@ -7,6 +7,8 @@
 const CamadasPublicas = (() => {
   const PAMGIA = 'https://pamgia.ibama.gov.br/server/rest/services/01_Publicacoes_Bases';
   const UFS_URL = `${PAMGIA}/lim_est_ibge_250k_2021/MapServer/7/query`;
+  const CATI = 'https://geo.cati.sp.gov.br/server/rest/services';
+  const LIMITE_FEICOES = 500; // por tela: mais que isso fica pesado; aproximar o mapa mostra o resto
 
   // tipo 'wms': GeoServer; tipo 'arcgis': imagem do MapServer (export) por ladrilho.
   // minZoom: bases de imóveis só aparecem de perto (cada ladrilho pede milhares de polígonos).
@@ -43,6 +45,31 @@ const CamadasPublicas = (() => {
     { grupo: 'Limites e hidrografia', id: 'massa_dagua', nome: "Massas d'água (BC250 2025)", fonte: 'IBGE',
       cor: 'accent-sky-500', tipo: 'wms', url: 'https://geoservicos.ibge.gov.br/geoserver/ows',
       layers: 'CCAR:BC250_2025_hid_massa_dagua_a' },
+    // CATI (SAA-SP): serviços hospedados sem imagem de mapa; o GeoWork pede as feições do retângulo visível
+    { grupo: 'Estadual SP (CATI)', id: 'sigef_sp_2024', nome: 'SIGEF SP (certificações até 05/2024)', fonte: 'CATI',
+      cor: 'accent-amber-500', hex: '#f59e0b', tipo: 'feicoes', minZoom: 13,
+      url: `${CATI}/Hosted/SIGEF_SP_07_05_2024/FeatureServer/61`,
+      campos: ['nome_area', 'parcela_co', 'codigo_imo', 'status', 'data_aprov', 'registro_m', 'municipio_', 'uf_id'] },
+    { grupo: 'Estadual SP (CATI)', id: 'uc_estadual_pi', nome: 'UC estadual de proteção integral', fonte: 'CATI',
+      cor: 'accent-green-500', hex: '#16a34a', tipo: 'feicoes', minZoom: 8,
+      url: `${CATI}/Hosted/UC_Estadual_PI_20203/FeatureServer/0`,
+      campos: ['nome', 'cate', 'grupo', 'ato', 'ano'] },
+    { grupo: 'Estadual SP (CATI)', id: 'uc_estadual_us', nome: 'UC estadual de uso sustentável', fonte: 'CATI',
+      cor: 'accent-lime-500', hex: '#84cc16', tipo: 'feicoes', minZoom: 8,
+      url: `${CATI}/Hosted/UC_Estadual_US_20203/FeatureServer/0`,
+      campos: ['nome_uc1', 'categori3', 'grupo4', 'ato_lega9', 'ano_cria6'] },
+    { grupo: 'Estadual SP (CATI)', id: 'app_topo_morro', nome: 'APP de topo de morro (relevo)', fonte: 'CATI',
+      cor: 'accent-sky-500', hex: '#0ea5e9', tipo: 'feicoes', minZoom: 12,
+      url: `${CATI}/Hosted/Relevo_APP_topo_morro3/FeatureServer/0`,
+      campos: ['nome', 'tipo_relev', 'referencia', 'area_ha'] },
+    { grupo: 'Estadual SP (CATI)', id: 'declividade_45', nome: 'Zonas acima de 45° (relevo)', fonte: 'CATI',
+      cor: 'accent-rose-500', hex: '#f43f5e', tipo: 'feicoes', minZoom: 11,
+      url: `${CATI}/Hosted/Relevo_zonas_acima_453/FeatureServer/0`,
+      campos: ['nome', 'referencia', 'area_ha'] },
+    { grupo: 'Estadual SP (CATI)', id: 'incendio_2024', nome: 'Áreas queimadas em 2024', fonte: 'CATI',
+      cor: 'accent-red-500', hex: '#dc2626', tipo: 'feicoes', minZoom: 8,
+      url: `${CATI}/Hosted/FOGO_2024_TOTAL_COMPL_DISSOLVE_REVISADO2/FeatureServer/42`,
+      campos: ['nome', 'uf', 'area_ha'] },
   ];
 
   // Ladrilho a partir do export do ArcGIS MapServer, na mesma grade Web Mercator do Leaflet
@@ -113,8 +140,48 @@ const CamadasPublicas = (() => {
     return camada;
   }
 
+  // Feições de um serviço ArcGIS hospedado (sem imagem de mapa): busca em GeoJSON só o retângulo da tela
+  function camadaFeicoes(c) {
+    const grupo = L.layerGroup();
+    let pedido = 0;
+    const atualizar = async () => {
+      const map = grupo._map;
+      if (!map) return;
+      const id = ++pedido;
+      if (map.getZoom() < c.minZoom) return grupo.clearLayers();
+      const b = map.getBounds();
+      const params = new URLSearchParams({
+        where: '1=1', geometry: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+        geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+        outFields: c.campos.join(','), outSR: '4326', f: 'geojson', resultRecordCount: LIMITE_FEICOES,
+      });
+      try {
+        const dados = await (await fetch(`${c.url}/query?${params}`)).json();
+        if (dados.error) throw new Error(dados.error.message);
+        if (id !== pedido) return; // a tela mudou enquanto a resposta vinha
+        grupo.clearLayers();
+        L.geoJSON(dados, { style: { color: c.hex, weight: 1.5, opacity: 0.85, fillOpacity: 0.12 } }).addTo(grupo);
+      } catch (err) {
+        if (id === pedido) grupo.fire('tileerror');
+      }
+    };
+    // grupo de feições não tem o atributo de crédito das camadas de imagem: o crédito vai ao rodapé à parte
+    grupo.on('add', () => {
+      grupo._map.on('moveend', atualizar);
+      grupo._map.attributionControl.addAttribution(c.fonte);
+      atualizar();
+    });
+    grupo.on('remove', e => {
+      if (!e.target._map) return;
+      e.target._map.off('moveend', atualizar);
+      e.target._map.attributionControl.removeAttribution(c.fonte);
+    });
+    return grupo;
+  }
+
   function criarCamada(c) {
     const comum = { opacity: 0.75, minZoom: c.minZoom || 0, attribution: c.fonte };
+    if (c.tipo === 'feicoes') return camadaFeicoes(c);
     if (c.porUf) return camadaPorUf(c, comum);
     if (c.tipo === 'wms') {
       return L.tileLayer.wms(c.url, { ...comum, layers: c.layers, format: 'image/png', transparent: true });

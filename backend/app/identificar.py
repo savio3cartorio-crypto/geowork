@@ -14,6 +14,8 @@ import httpx
 
 from .consultas_publicas import ANM, PAMGIA, SICAR_WFS, UFS_URL, _fmt, _get_json
 
+CATI = "https://geo.cati.sp.gov.br/server/rest/services"
+
 MAX_FEICOES = 5  # por camada; imóveis do CAR sobrepostos aparecem todos até esse limite
 IBGE_WMS = "https://geoservicos.ibge.gov.br/geoserver/ows"
 ITENS_SICAR_TIPO = {"IRU": "Imóvel rural", "AST": "Assentamento", "PCT": "Povos e comunidades tradicionais"}
@@ -157,6 +159,47 @@ CAMADAS = {
         ("ULT_EVENTO", "Último evento", None),
         ("UF", "UF", None),
     ], lambda a: f"Processo {a.get('PROCESSO')}"),
+    # CATI (SAA-SP). O SIGEF 2024 traz rt e art (responsável técnico): ficam de fora, como no SIGEF do IBAMA
+    "sigef_sp_2024": ("SIGEF SP (certificações até 05/2024)", "arcgis", f"{CATI}/Hosted/SIGEF_SP_07_05_2024/FeatureServer/61", [
+        ("nome_area", "Denominação", None),
+        ("parcela_co", "Código da parcela", None),
+        ("codigo_imo", "Código do imóvel (SNCR)", None),
+        ("status", "Situação", None),
+        ("data_aprov", "Certificada em", _data),
+        ("registro_m", "Matrícula", None),
+        ("municipio_", "Município (código)", None),
+        ("uf_id", "UF (código)", None),
+    ], lambda a: a.get("nome_area") or a.get("parcela_co")),
+    "uc_estadual_pi": ("UC estadual de proteção integral (CATI)", "arcgis", f"{CATI}/Hosted/UC_Estadual_PI_20203/FeatureServer/0", [
+        ("nome", "Nome", None),
+        ("cate", "Categoria", None),
+        ("grupo", "Grupo", None),
+        ("ato", "Ato legal", None),
+        ("ano", "Ano", None),
+    ], lambda a: a.get("nome")),
+    "uc_estadual_us": ("UC estadual de uso sustentável (CATI)", "arcgis", f"{CATI}/Hosted/UC_Estadual_US_20203/FeatureServer/0", [
+        ("nome_uc1", "Nome", None),
+        ("categori3", "Categoria", None),
+        ("grupo4", "Grupo", None),
+        ("ato_lega9", "Ato legal", None),
+        ("ano_cria6", "Ano de criação", None),
+    ], lambda a: a.get("nome_uc1")),
+    "app_topo_morro": ("APP de topo de morro (CATI)", "arcgis", f"{CATI}/Hosted/Relevo_APP_topo_morro3/FeatureServer/0", [
+        ("nome", "Nome", None),
+        ("tipo_relev", "Tipo de relevo", None),
+        ("referencia", "Referência", None),
+        ("area_ha", "Área", _ha),
+    ], lambda a: a.get("nome") or "APP de topo de morro"),
+    "declividade_45": ("Zonas acima de 45° (CATI)", "arcgis", f"{CATI}/Hosted/Relevo_zonas_acima_453/FeatureServer/0", [
+        ("nome", "Nome", None),
+        ("referencia", "Referência", None),
+        ("area_ha", "Área", _ha),
+    ], lambda a: a.get("nome") or "Zona acima de 45°"),
+    "incendio_2024": ("Áreas queimadas em 2024 (CATI)", "arcgis", f"{CATI}/Hosted/FOGO_2024_TOTAL_COMPL_DISSOLVE_REVISADO2/FeatureServer/42", [
+        ("nome", "Nome", None),
+        ("uf", "UF", None),
+        ("area_ha", "Área", _ha),
+    ], lambda a: a.get("nome") or "Área queimada"),
     "municipios": ("Municípios (IBGE)", "wms", "CCAR:BC250_2025_lml_municipio_a", [
         ("nome", "Município", None),
         ("geocodigo", "Código IBGE", None),

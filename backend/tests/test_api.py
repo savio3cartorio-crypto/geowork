@@ -737,3 +737,11 @@ def test_identificar_feicoes_no_ponto(client, monkeypatch):
 
     assert client.get("/camadas/identificar?lat=-23&lng=-45.5&camadas=xyz").status_code == 422
     assert client.get("/camadas/identificar?lat=40&lng=-45.5&camadas=sicar").status_code == 422
+
+
+def test_identificar_nao_le_responsavel_tecnico_do_sigef():
+    from app import identificar
+
+    for camada in ("sigef", "sigef_publico", "sigef_sp_2024"):
+        campos = {campo for campo, *_ in identificar.CAMADAS[camada][3]}
+        assert not campos & {"rt", "art"}, camada
