@@ -220,7 +220,7 @@ def test_arquivo_recusa_nao_pdf(client, servico, tmp_path, monkeypatch):
     texto = base64.b64encode(b"nao sou pdf").decode()
     assert client.post(url, json={"nome_arquivo": "x.pdf", "conteudo_base64": texto}).status_code == 422
     pdf = base64.b64encode(PDF_MINIMO).decode()
-    assert client.post(url, json={"nome_arquivo": "x.txt", "conteudo_base64": pdf}).status_code == 422
+    assert client.post(url, json={"nome_arquivo": "x.exe", "conteudo_base64": pdf}).status_code == 422
     assert client.post(url, json={"nome_arquivo": "x.pdf", "conteudo_base64": "!!!"}).status_code == 422
 
 
@@ -809,3 +809,13 @@ def test_conferencia_do_projeto_responde_itens(client, servico, tmp_path, monkey
     assert {i["grupo"] for i in itens} <= {"Georreferenciamento", "CAR"}
     assert any("Perímetro não desenhado" in i["texto"] for i in itens)
     assert all({"grupo", "nivel", "texto", "base"} <= set(i) for i in itens)
+
+
+def test_relatorio_em_csv_e_txt_so_aceita_texto(client, servico, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    sid = servico["id"]
+    assert _anexo(client, sid, "quadro-de-areas-car.csv", "Item;Área\nTotal;1,0000\n".encode("utf-8"),
+                  pasta="relatorios").json()["tipo"] == "CSV"
+    assert _anexo(client, sid, "pre-analise-car.txt", "✓ Sede marcada.".encode("utf-8"),
+                  pasta="relatorios").json()["tipo"] == "TXT"
+    assert _anexo(client, sid, "binario.txt", b"\xff\xfe\x00\x01").status_code == 422

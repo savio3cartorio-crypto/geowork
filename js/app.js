@@ -2268,6 +2268,82 @@
   el('btnSicar').addEventListener('click', baixarSicar);
   el('btnPacote').addEventListener('click', baixarPacote);
 
+  // Relatório do CAR: quadro de áreas (CSV) e pré-análise (TXT), gerados da tela e guardados na pasta Relatórios
+  const numBR = (v, casas) => (v === null || v === undefined || Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
+  const celulaCsv = v => `"${String(v).replace(/"/g, '""')}"`;
+  function textoQuadroCsv(s, q) {
+    const pct = v => (q.areaImovelHa ? numBR((v / q.areaImovelHa) * 100, 2) : '');
+    const linhas = [
+      ['Item', 'Área (ha)', '% do imóvel'],
+      ['Área do imóvel', numBR(q.areaImovelHa, 4), '100,00'],
+      [ROTULOS.servidao, numBR(q.servidaoHa, 4), pct(q.servidaoHa)],
+      ['Área líquida', numBR(q.areaLiquidaHa, 4), pct(q.areaLiquidaHa)],
+      ...Object.entries(q.classes).filter(([, ha]) => ha > 0).map(([cat, ha]) => [ROTULOS[cat] || cat, numBR(ha, 4), pct(ha)]),
+      ['Reserva Legal do imóvel (total)', numBR(q.rlTotalHa, 4), pct(q.rlTotalHa)],
+      [`RL mínima (${q.percentual}% da área líquida)`, numBR(q.rlMinimaHa, 4), pct(q.rlMinimaHa)],
+      ['Módulos fiscais', q.modulos ? numBR(q.modulos, 2) : '', ''],
+      ['Módulo fiscal do município (ha)', q.mfHa ? numBR(q.mfHa, 4) : '', ''],
+      ['Imóvel', s.name, ''],
+      ['Código do CAR', s.docs.car || '', ''],
+    ];
+    return linhas.map(l => l.map(celulaCsv).join(';')).join('\r\n') + '\r\n';
+  }
+  function textoPreAnaliseTxt(s, checks) {
+    const marca = { ok: '✓', info: 'ℹ', aviso: '⚠', erro: '✗' };
+    return [
+      'PRÉ-ANÁLISE DO CAR - GeoWork',
+      `Imóvel: ${s.name} (Rev ${pad2(s.rev)})`,
+      `Código do CAR: ${s.docs.car || 'não informado'}`,
+      `Gerado em: ${new Date().toLocaleDateString('pt-BR')}`,
+      '',
+      ...checks.map(([nivel, texto]) => `${marca[nivel] || '-'} ${texto}`),
+      '',
+      'Pré-análise automática com base nos dados desenhados. Não substitui a análise do órgão.',
+    ].join('\r\n') + '\r\n';
+  }
+  function baixarTexto(nome, conteudo) {
+    const url = URL.createObjectURL(new Blob([conteudo], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nome;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  async function gerarRelatorioCar() {
+    const s = svc();
+    if (!s) return msg('Crie ou selecione um serviço antes de gerar o relatório do CAR.', true);
+    const analise = Car.analisar({
+      camadas: s.layers, rotulos: ROTULOS, mfHa: s.mf, rlPercentual: s.rlPct, areaDocumentalHa: s.areaDoc,
+    });
+    if (!analise.quadro) return msg('Desenhe ou importe o perímetro antes de gerar o relatório do CAR.', true);
+    const base = `car-${s.id}-rev${pad2(s.rev)}`;
+    const arquivos = [
+      [`quadro-de-areas-${base}.csv`, textoQuadroCsv(s, analise.quadro)],
+      [`pre-analise-${base}.txt`, textoPreAnaliseTxt(s, analise.checks)],
+    ];
+    try {
+      if (remote.mode === 'api' && s.remote) {
+        await flushSync();
+        for (const [nome, conteudo] of arquivos) {
+          await api(`/servicos/${s.id}/arquivos`, {
+            method: 'POST',
+            body: {
+              nome_arquivo: nome, categoria: 'outro', pasta: 'relatorios',
+              conteudo_base64: await fileToBase64(new Blob([conteudo], { type: 'text/plain' })),
+            },
+          });
+        }
+        await loadArquivos();
+      }
+      arquivos.forEach(([nome, conteudo]) => baixarTexto(nome, conteudo));
+      const guardado = remote.mode === 'api' && s.remote ? ' Guardados na pasta Relatórios do projeto.' : '';
+      msg(`Relatório do CAR gerado (quadro de áreas e pré-análise).${guardado}`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro ao gerar o relatório: ${err.message}`, true);
+    }
+  }
+  el('btnRelatorioCar').addEventListener('click', gerarRelatorioCar);
+
   // Conferência do projeto: o servidor confere o que dá e a tela mostra o que falta
   const NIVEIS_CONFERENCIA = {
     ok: ['✓', 'text-emerald-400'], aviso: ['⚠', 'text-amber-300'],
