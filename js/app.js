@@ -1313,13 +1313,13 @@
     }
   }
 
-  // Base vetorial do serviço salvo: uma camada por categoria, em SIRGAS 2000 (GeoPackage)
-  async function baixarGpkg() {
+  // Arquivo gerado pelo servidor a partir do serviço salvo (GeoPackage, pacote do SICAR)
+  async function baixarDoServidor(rota, arquivo, rotulo) {
     const s = svc();
-    if (remote.mode !== 'api' || !s || !s.remote) return msg('A base .gpkg precisa do servidor e de um serviço salvo.', true);
+    if (remote.mode !== 'api' || !s || !s.remote) return msg(`Para baixar ${rotulo}, use o servidor e um serviço salvo.`, true);
     try {
-      await flushSync(); // grava antes as alterações pendentes para a base sair atualizada
-      const res = await fetch(`/servicos/${s.id}/exportar.gpkg`);
+      await flushSync(); // grava antes as alterações pendentes para o arquivo sair atualizado
+      const res = await fetch(`/servicos/${s.id}/${rota}`);
       if (!res.ok) {
         const corpo = await res.json().catch(() => ({}));
         throw new Error(typeof corpo.detail === 'string' ? corpo.detail : `HTTP ${res.status}`);
@@ -1327,14 +1327,20 @@
       const url = URL.createObjectURL(await res.blob());
       const link = document.createElement('a');
       link.href = url;
-      link.download = `servico-${s.id}.gpkg`;
+      link.download = arquivo(s);
       link.click();
       URL.revokeObjectURL(url);
-      msg('Base .gpkg baixada.');
+      msg(`Baixado: ${rotulo}.`);
     } catch (err) {
-      msg(`Erro ao gerar o .gpkg: ${err.message}`, true);
+      msg(`Erro ao gerar ${rotulo}: ${err.message}`, true);
     }
   }
+
+  // Base vetorial do serviço: uma camada por categoria, em SIRGAS 2000 (GeoPackage)
+  const baixarGpkg = () => baixarDoServidor('exportar.gpkg', s => `servico-${s.id}.gpkg`, 'a base .gpkg');
+  // Um shapefile por camada do CAR, cada um no seu .zip, para importar na etapa Geo do SICAR
+  const baixarSicar = () =>
+    baixarDoServidor('exportar-sicar.zip', s => `sicar-${s.id}-rev${pad2(s.rev)}.zip`, 'o pacote SICAR');
 
   function gerarSigef() {
     const ctx = entregaContext();
@@ -1711,6 +1717,7 @@
   el('btnMemTabular').addEventListener('click', () => gerarMemorial('tabular'));
   el('btnMemDocx').addEventListener('click', baixarMemorialDocx);
   el('btnGpkg').addEventListener('click', baixarGpkg);
+  el('btnSicar').addEventListener('click', baixarSicar);
   el('btnSalvarEndereco').addEventListener('click', async () => {
     const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
     if (remote.mode !== 'api' || !c) return;

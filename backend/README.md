@@ -69,17 +69,19 @@ Sem banco disponível, os testes são pulados, sem falhar.
 | `GET /login` | tela de entrada (público) |
 | `POST /auth/login`, `POST /auth/logout`, `GET /auth/eu` | entra (cria a sessão em cookie HTTP-only), sai (revoga a sessão) e informa o usuário logado |
 | `POST /clientes`, `GET /clientes`, `PUT /clientes/{id}` | cadastro, listagem e edição de clientes, com endereço padronizado (CEP `xxxxx-xxx`, UF em duas letras) |
-| `POST /servicos`, `GET /servicos?cliente_id=` | cria e lista serviços |
+| `POST /servicos`, `GET /servicos?cliente_id=` | cria e lista serviços (o nome do imóvel é único por cliente e revisão) |
 | `GET /servicos/{id}` | serviço com camadas, vértices e confrontantes |
 | `POST /servicos/{id}/revisoes` | nova revisão: copia camadas, vértices e confrontantes |
 | `PUT /servicos/{id}/perimetro` | grava o perímetro, com vértices e confrontantes (substitui o anterior) |
-| `PUT /servicos/{id}/camadas/{categoria}` | substitui as feições de `rl`, `app`, `hidro` ou `edificacao` |
+| `PUT /servicos/{id}/camadas/{categoria}` | substitui as feições de uma camada (`sede`, `vegetacao_nativa`, `area_consolidada`, `pousio`, `servidao`, `app`, `uso_restrito`, `rl`, `rl_averbada`, `rl_aprovada`, `rl_compensacao`, `hidro`, `edificacao`) |
+| `PUT /servicos/{id}/camadas` | substitui várias camadas numa só transação: `{"camadas": {categoria: [feições]}}` |
 | `POST /servicos/{id}/offset` | cria a paralela de uma feição (ver abaixo) |
 | `POST /servicos/{id}/arquivos` | anexa um PDF em base64 (ex.: demonstrativo do CAR, categoria `recibo_car`); até 10 MB; o arquivo vai para `GEOWORK_STORAGE_DIR` (padrão `backend/storage/`) |
 | `GET /servicos/{id}/arquivos`, `GET /arquivos/{id}` | lista os anexos do serviço e baixa um deles |
 | `GET /buscar?q=` | busca serviços por nome do imóvel, código CAR, código INCRA/SNCR, matrícula, nome ou documento do cliente |
 | `PUT /servicos/{id}/curvas`, `DELETE /servicos/{id}/curvas` | grava (substitui) ou remove as curvas de nível; cada cota é uma linha da categoria `curvas` com `propriedades.cota` |
-| `GET /servicos/{id}/exportar.gpkg` | base vetorial em GeoPackage (SIRGAS 2000, EPSG:4674): uma camada por categoria (`perimetro`, `rl`, `app`, `hidro`, `edificacao`, `curvas`) e `vertices` com código, altitude e precisão |
+| `GET /servicos/{id}/exportar.gpkg` | base vetorial em GeoPackage (SIRGAS 2000, EPSG:4674): uma camada por categoria (perímetro, camadas do CAR, `edificacao`, `curvas`) e `vertices` com código, altitude e precisão |
+| `GET /servicos/{id}/exportar-sicar.zip` | pacote para a etapa Geo do SICAR: um .zip de shapefile por camada do CAR (EPSG:4674, com `area_ha` ou `compr_m`) e um `LEIA-ME.txt` com a categoria de cada arquivo |
 | `POST /memorial.docx` | gera o memorial em Word a partir das linhas do texto (`corrido` ou `tabular`) |
 
 Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).

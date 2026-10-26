@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import docx_export, gpkg_export, repo
+from . import docx_export, gpkg_export, repo, sicar_export
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -199,6 +199,19 @@ def exportar_gpkg(servico_id: int):
         content=conteudo,
         media_type="application/geopackage+sqlite3",
         headers={"Content-Disposition": f'attachment; filename="servico-{servico_id}.gpkg"'},
+    )
+
+
+# Um shapefile por camada do CAR, cada um no seu .zip, prontos para a etapa Geo do SICAR
+@api.get("/servicos/{servico_id}/exportar-sicar.zip")
+def exportar_sicar(servico_id: int):
+    with connect() as conn:
+        servico, camadas = repo.camadas_para_sicar(conn, servico_id, sicar_export.CATEGORIAS)
+    conteudo = sicar_export.gerar(servico, camadas)
+    return Response(
+        content=conteudo,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="sicar-servico-{servico_id}.zip"'},
     )
 
 

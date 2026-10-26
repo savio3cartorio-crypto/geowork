@@ -61,7 +61,9 @@ CREATE TABLE servicos (
   servico_origem_id bigint      REFERENCES servicos(id) ON DELETE SET NULL,
   status            text        NOT NULL DEFAULT 'rascunho',
   criado_em         timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (empresa_id, nome_imovel, revisao)
+  -- nome do imóvel único por cliente (dois clientes podem ter um "Sítio São José")
+  CONSTRAINT servicos_empresa_cliente_nome_revisao_key
+    UNIQUE NULLS NOT DISTINCT (empresa_id, cliente_id, nome_imovel, revisao)
 );
 
 -- Pilar 1: DADOS ----------------------------------------------------------------
@@ -176,4 +178,5 @@ INSERT INTO schema_migracoes (arquivo) VALUES
   ('002_curvas_de_nivel.sql'),
   ('003_endereco_cliente.sql'),
   ('004_usuarios_e_sessoes.sql'),
-  ('005_camadas_car.sql');
+  ('005_camadas_car.sql'),
+  ('006_servico_unico_por_cliente.sql');

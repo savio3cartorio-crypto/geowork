@@ -271,8 +271,11 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
     """Clona o serviço como próxima revisão, copiando camadas, vértices e confrontantes."""
     origem = _require_servico(conn, servico_id)
     rev = conn.execute(
-        "SELECT COALESCE(MAX(revisao), -1) + 1 AS r FROM servicos WHERE empresa_id = %s AND nome_imovel = %s",
-        (origem["empresa_id"], origem["nome_imovel"]),
+        """
+        SELECT COALESCE(MAX(revisao), -1) + 1 AS r FROM servicos
+        WHERE empresa_id = %s AND cliente_id IS NOT DISTINCT FROM %s AND nome_imovel = %s
+        """,
+        (origem["empresa_id"], origem["cliente_id"], origem["nome_imovel"]),
     ).fetchone()["r"]
 
     novo = conn.execute(
@@ -614,3 +617,22 @@ def camadas_para_gpkg(conn: Connection, servico_id: int) -> dict[str, list[dict]
     camadas["vertices"] = [{**v, "wkb": bytes(v["wkb"])} for v in vertices]
     return camadas
 
+
+
+def camadas_para_sicar(conn: Connection, servico_id: int, categorias: list[str]) -> tuple[dict, dict[str, list[dict]]]:
+    """Camadas do CAR com área (ha) ou comprimento (m) geodésicos e o motivo de geometria inválida."""
+    servico = _require_servico(conn, servico_id)
+    linhas = conn.execute(
+        """
+        SELECT categoria, ordem, ST_AsBinary(ST_Force2D(geom)) AS wkb,
+               ST_Area(geom::geography) / 10000 AS area_ha,
+               ST_Length(geom::geography) AS compr_m,
+               CASE WHEN ST_IsValid(geom) THEN NULL ELSE ST_IsValidReason(geom) END AS invalida
+        FROM camadas_desenho WHERE servico_id = %s AND categoria = ANY(%s) ORDER BY categoria, ordem
+        """,
+        (servico_id, categorias),
+    ).fetchall()
+    camadas: dict[str, list[dict]] = {}
+    for row in linhas:
+        camadas.setdefault(row["categoria"], []).append({**row, "wkb": bytes(row["wkb"])})
+    return servico, camadas

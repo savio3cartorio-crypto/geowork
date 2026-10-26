@@ -460,3 +460,47 @@ def test_gpkg_inclui_camadas_car(client, servico, tmp_path):
     nomes = {nome for nome, _ in pyogrio.list_layers(arquivo)}
     assert {"perimetro", "sede", "vegetacao_nativa"} <= nomes
     assert pyogrio.read_info(arquivo, layer="sede")["geometry_type"] == "Point"
+
+
+def test_mesmo_nome_de_imovel_em_clientes_diferentes(client, servico):
+    outro = client.post("/clientes", json={"nome": "Outro Cliente", "cpf_cnpj": "111.111.111-11"}).json()
+    nome = servico["nome_imovel"]
+    r = client.post("/servicos", json={"cliente_id": outro["id"], "nome_imovel": nome})
+    assert r.status_code == 201
+    # a revisão conta por cliente: o outro cliente começa da Rev 00 e avança sozinho
+    assert r.json()["revisao"] == 0
+    assert client.post(f"/servicos/{r.json()['id']}/revisoes").json()["revisao"] == 1
+    # no mesmo cliente o nome continua único
+    repetido = client.post("/servicos", json={"cliente_id": servico["cliente_id"], "nome_imovel": nome})
+    assert repetido.status_code == 409
+
+
+def test_pacote_sicar_um_shapefile_por_camada(client, servico, tmp_path):
+    pyogrio = pytest.importorskip("pyogrio")
+    url = f"/servicos/{servico['id']}"
+    assert client.get(f"{url}/exportar-sicar.zip").status_code == 422  # sem perímetro
+    client.put(f"{url}/perimetro", json={"ring": QUADRADO})
+    client.put(
+        f"{url}/camadas",
+        json={"camadas": {"sede": [SEDE], "vegetacao_nativa": [VEGETACAO], "rl_averbada": [RL_AVERBADA],
+                          "edificacao": [RL_AVERBADA]}},
+    )
+    r = client.get(f"{url}/exportar-sicar.zip")
+    assert r.status_code == 200
+    pacote = zipfile.ZipFile(io.BytesIO(r.content))
+    assert sorted(pacote.namelist()) == [
+        "01_area_do_imovel.zip", "02_sede.zip", "03_vegetacao_nativa.zip", "11_reserva_legal_averbada.zip",
+        "LEIA-ME.txt",
+    ]
+    leia = pacote.read("LEIA-ME.txt").decode()
+    assert "EPSG:4674" in leia and "Reserva Legal averbada" in leia
+
+    interno = zipfile.ZipFile(io.BytesIO(pacote.read("02_sede.zip")))
+    assert {n.rsplit(".", 1)[1] for n in interno.namelist()} >= {"shp", "shx", "dbf", "prj"}
+    interno.extractall(tmp_path)
+    info = pyogrio.read_info(tmp_path / "02_sede.shp")
+    assert info["geometry_type"] == "Point" and "4674" in info["crs"]
+
+    zipfile.ZipFile(io.BytesIO(pacote.read("01_area_do_imovel.zip"))).extractall(tmp_path)
+    _, _, _, campos = pyogrio.raw.read(tmp_path / "01_area_do_imovel.shp")
+    assert 100 < campos[1][0] < 130  # area_ha do quadrado de 0,01° (~113 ha)
