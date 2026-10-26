@@ -340,10 +340,33 @@
     await selectService(first ? first.id : null);
   }
 
+  async function novoCliente() {
+    const nome = (prompt('Nome do cliente:') || '').trim();
+    if (!nome) return;
+    const doc = (prompt('CPF ou CNPJ do cliente:') || '').trim();
+    if (!doc) return msg('Informe o CPF ou CNPJ para cadastrar o cliente.', true);
+    if (remote.mode !== 'api') {
+      const id = `c${Date.now()}`;
+      state.clients.push({ id, name: nome, doc });
+      await selectClient(id);
+      return msg(`Cliente "${nome}" cadastrado neste navegador.`);
+    }
+    try {
+      await flushSync();
+      const criado = await api('/clientes', { method: 'POST', body: { nome, cpf_cnpj: doc } });
+      await loadRemoteServicos();
+      await selectClient(criado.id);
+      msg(`Cliente "${criado.nome}" cadastrado. Agora crie o serviço em +Rev.`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Não foi possível cadastrar o cliente: ${err.message}`, true);
+    }
+  }
+
   async function novaRevisaoRemote(s) {
     try {
       await flushSync();
       if (!s) {
+        if (!state.activeClientId) return msg('Cadastre ou selecione um cliente antes (+Cliente).', true);
         const name = prompt('Nome do serviço:');
         if (!name) return;
         const criado = await api('/servicos', {
@@ -1439,6 +1462,7 @@
   });
 
   el('clientSelect').addEventListener('change', e => selectClient(e.target.value));
+  el('btnNovoCliente').addEventListener('click', novoCliente);
 
   el('serviceSelect').addEventListener('change', e => {
     if (e.target.value) selectService(e.target.value);
