@@ -171,3 +171,8 @@ class CurvasIn(BaseModel):
 
     intervalo: float = Field(gt=0, description="equidistância em metros")
     feicoes: list[CurvaIn] = Field(default_factory=list, max_length=500)
+
+
+class LoginIn(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    senha: str = Field(min_length=1, max_length=200)

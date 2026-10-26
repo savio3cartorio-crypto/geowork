@@ -6,14 +6,19 @@ Sem banco, o módulo é pulado. Rodar a partir da pasta backend/:
 
 import base64
 import io
+import os
 import uuid
 import zipfile
+
+# Cookie de sessão sem Secure: o TestClient usa http://testserver
+os.environ.setdefault("GEOWORK_COOKIE_SEGURO", "false")
 
 import pytest
 
 psycopg = pytest.importorskip("psycopg")
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.auth import hash_senha, verificar_senha  # noqa: E402
 from app.config import settings  # noqa: E402
 
 try:
@@ -27,9 +32,27 @@ from app.main import app  # noqa: E402
 QUADRADO = [[-45.530, -23.040], [-45.520, -23.040], [-45.520, -23.030], [-45.530, -23.030]]
 
 
+SENHA_TESTE = "senha-de-teste-123"
+
+
 @pytest.fixture(scope="module")
-def client():
+def usuario_teste():
+    email = f"teste-{uuid.uuid4().hex[:8]}@geowork.test"
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute(
+            "INSERT INTO usuarios (email, senha_hash, papel) VALUES (%s, %s, 'master')",
+            (email, hash_senha(SENHA_TESTE)),
+        )
+    yield email
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("DELETE FROM usuarios WHERE email = %s", (email,))
+
+
+@pytest.fixture(scope="module")
+def client(usuario_teste):
     with TestClient(app) as c:
+        r = c.post("/auth/login", json={"email": usuario_teste, "senha": SENHA_TESTE})
+        assert r.status_code == 200, r.text
         yield c
 
 
@@ -306,3 +329,61 @@ def test_endereco_do_cliente_e_padronizado(client):
     import psycopg
     with psycopg.connect(settings.database_url) as conn:
         conn.execute("DELETE FROM clientes WHERE id = %s", (cliente["id"],))
+
+
+# ---------- login ----------
+
+def test_senha_guardada_como_hash_e_verificavel():
+    h = hash_senha(SENHA_TESTE)
+    assert h.startswith("scrypt$") and SENHA_TESTE not in h
+    assert verificar_senha(SENHA_TESTE, h)
+    assert not verificar_senha("outra-senha-qualquer", h)
+    assert not verificar_senha(SENHA_TESTE, "lixo-sem-formato")
+
+
+def test_api_exige_login():
+    anonimo = TestClient(app)
+    assert anonimo.get("/servicos").status_code == 401
+    assert anonimo.post("/clientes", json={"nome": "Sem login"}).status_code == 401
+    assert anonimo.get("/auth/eu").status_code == 401
+    assert anonimo.get("/health").status_code == 200
+
+
+def test_pagina_principal_redireciona_para_login():
+    anonimo = TestClient(app)
+    r = anonimo.get("/", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/login"
+    assert anonimo.get("/login").status_code == 200
+
+
+def test_senha_errada_recusada(usuario_teste):
+    anonimo = TestClient(app)
+    r = anonimo.post("/auth/login", json={"email": usuario_teste, "senha": "errada-errada-1"})
+    assert r.status_code == 401
+    assert "gw_sessao" not in anonimo.cookies
+
+
+def test_login_logout_revoga_sessao(usuario_teste):
+    c = TestClient(app)
+    r = c.post("/auth/login", json={"email": usuario_teste.upper(), "senha": SENHA_TESTE})
+    assert r.status_code == 200, r.text
+    assert r.json()["papel"] == "master"
+    cookie = c.cookies.get("gw_sessao")
+    assert cookie
+    assert c.get("/auth/eu").status_code == 200
+
+    assert c.post("/auth/logout").status_code == 200
+    assert c.get("/auth/eu").status_code == 401
+
+    # Um cookie copiado antes do logout não vale mais: a sessão foi apagada no servidor
+    c.cookies.set("gw_sessao", cookie)
+    assert c.get("/auth/eu").status_code == 401
+
+
+def test_bloqueia_apos_tentativas_erradas():
+    email = f"bloqueio-{uuid.uuid4().hex[:8]}@geowork.test"
+    c = TestClient(app)
+    for _ in range(5):
+        assert c.post("/auth/login", json={"email": email, "senha": "errada-errada-1"}).status_code == 401
+    assert c.post("/auth/login", json={"email": email, "senha": "errada-errada-1"}).status_code == 429

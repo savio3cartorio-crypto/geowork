@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Entrar · GeoWork</title>
+  <link rel="stylesheet" href="css/tailwind.css">
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+  <main class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+    <div class="flex items-center gap-2 font-bold text-sky-400 text-lg mb-6">
+      <span class="bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 rounded text-sm">GEO</span>
+      <span>GeoWork</span>
+    </div>
+
+    <form id="formLogin" class="space-y-4" novalidate>
+      <label class="block text-xs">
+        <span class="text-slate-400">E-mail</span>
+        <input id="email" name="email" type="email" autocomplete="username" required
+          class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-sky-500">
+      </label>
+
+      <label class="block text-xs">
+        <span class="text-slate-400">Senha</span>
+        <input id="senha" name="senha" type="password" autocomplete="current-password" required
+          class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-sky-500">
+      </label>
+
+      <p id="erro" role="alert" class="hidden text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded px-3 py-2"></p>
+
+      <button id="btnEntrar" type="submit"
+        class="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white font-semibold text-sm py-2 rounded">
+        Entrar
+      </button>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById('formLogin');
+    const erro = document.getElementById('erro');
+    const botao = document.getElementById('btnEntrar');
+
+    function mostrarErro(texto) {
+      erro.textContent = texto;
+      erro.classList.remove('hidden');
+    }
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      erro.classList.add('hidden');
+      const email = document.getElementById('email').value.trim();
+      const senha = document.getElementById('senha').value;
+      if (!email || !senha) return mostrarErro('Informe e-mail e senha.');
+
+      botao.disabled = true;
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, senha }),
+        });
+        if (res.ok) {
+          window.location.replace('/');
+          return;
+        }
+        const corpo = await res.json().catch(() => ({}));
+        mostrarErro(typeof corpo.detail === 'string' ? corpo.detail : 'Não foi possível entrar agora.');
+      } catch (err) {
+        mostrarErro('Sem conexão com o servidor. Tente de novo.');
+      } finally {
+        botao.disabled = false;
+        document.getElementById('senha').value = '';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -6,8 +6,8 @@
   <title>GeoWork — CAR, SIGEF & Notarial</title>
   <meta name="description" content="Workspace de georreferenciamento: CAR, SIGEF, memorial descritivo e entregas.">
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/tailwind.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="flex flex-col h-screen overflow-hidden bg-slate-900 text-slate-100 font-sans">
@@ -35,6 +35,7 @@
         class="w-72 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
       <button id="btnSearch" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2.5 py-1.5 rounded text-xs">Ir</button>
       <button id="btnQuote" type="button" class="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 px-3 py-1.5 rounded text-xs font-medium">⚡ Croqui Orçamento</button>
+      <button id="btnSair" type="button" title="Encerrar a sessão neste navegador" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2.5 py-1.5 rounded text-xs">Sair</button>
       <div class="text-right text-[11px] leading-tight border-l border-slate-800 pl-3">
         <div class="font-semibold text-slate-200">SIRGAS 2000</div>
         <div id="zoneLabel" class="text-sky-400 font-mono"></div>
@@ -280,11 +281,11 @@
     </main>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/proj4.min.js"></script>
+  <script src="vendor/turf.min.js"></script>
+  <script src="vendor/shp.min.js"></script>
+  <script src="vendor/togeojson.umd.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/cad.js"></script>
   <script src="js/export.js"></script>

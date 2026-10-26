@@ -135,3 +135,37 @@ CREATE TABLE entregas (
   caminho     text        NOT NULL,
   gerado_em   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Login do sistema ------------------------------------------------------------
+
+CREATE TABLE usuarios (
+  id          bigserial PRIMARY KEY,
+  email       text        NOT NULL UNIQUE,
+  senha_hash  text        NOT NULL,
+  papel       text        NOT NULL DEFAULT 'usuario' CHECK (papel IN ('master', 'usuario')),
+  ativo       boolean     NOT NULL DEFAULT true,
+  criado_em   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE sessoes (
+  token_hash  char(64)    PRIMARY KEY,
+  usuario_id  bigint      NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criada_em   timestamptz NOT NULL DEFAULT now(),
+  expira_em   timestamptz NOT NULL
+);
+
+CREATE INDEX sessoes_expira_em_idx ON sessoes (expira_em);
+
+-- Controle de migrações -------------------------------------------------------
+-- O deploy (scripts/deploy-remoto.sh) aplica só os arquivos de db/migracoes ainda não listados aqui.
+-- Este schema já contém o efeito das migrações abaixo.
+
+CREATE TABLE schema_migracoes (
+  arquivo      text        PRIMARY KEY,
+  aplicada_em  timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO schema_migracoes (arquivo) VALUES
+  ('002_curvas_de_nivel.sql'),
+  ('003_endereco_cliente.sql'),
+  ('004_usuarios_e_sessoes.sql');

@@ -93,7 +93,7 @@
   const zoneOf = lng => Geo.utmZoneFromLon(lng);
 
   // ---------- Modo remoto: backend FastAPI + PostGIS (mesma origem). Sem servidor, segue no navegador ----------
-  const remote = { mode: 'local' };
+  const remote = { mode: 'local', falhaPendente: false };
   let syncQueue = Promise.resolve();
   const flushSync = () => syncQueue;
 
@@ -103,6 +103,13 @@
       headers: options.body ? { 'Content-Type': 'application/json' } : {},
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
+    if (res.status === 401) {
+      // Sessão encerrada ou expirada: volta para o login sem mostrar erro de sincronização
+      window.location.replace('/login');
+      const err = new Error('Sessão encerrada');
+      err.sessaoEncerrada = true;
+      throw err;
+    }
     if (!res.ok) {
       let detail = res.statusText;
       try {
@@ -235,8 +242,15 @@
     const snapshot = JSON.parse(JSON.stringify(s));
     syncQueue = syncQueue
       .then(() => pushService(snapshot))
-      .then(() => msg('Salvo no servidor.'))
-      .catch(err => msg(`Falha ao salvar no servidor: ${err.message}`, true));
+      .then(() => {
+        remote.falhaPendente = false;
+        msg('Salvo no servidor.');
+      })
+      .catch(err => {
+        if (err.sessaoEncerrada) return;
+        remote.falhaPendente = true;
+        msg(`Falha ao salvar no servidor: ${err.message}. A última alteração ainda não foi gravada.`, true);
+      });
   }
 
   async function loadRemoteServicos() {
@@ -1587,6 +1601,35 @@
     executeCad();
   });
 
+  function bloquearSemServidor() {
+    const aviso = document.createElement('div');
+    aviso.setAttribute('role', 'alert');
+    aviso.className = 'fixed inset-0 z-[2000] flex items-center justify-center bg-slate-950/90 p-4';
+    aviso.innerHTML = `
+      <div class="max-w-sm bg-slate-900 border border-rose-500/40 rounded-xl p-6 text-center space-y-3">
+        <p class="font-semibold text-rose-300">Não foi possível carregar os dados do servidor.</p>
+        <p class="text-xs text-slate-400">Nada foi alterado. Verifique a conexão e tente de novo.</p>
+        <button type="button" class="bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold px-4 py-2 rounded">Tentar de novo</button>
+      </div>`;
+    aviso.querySelector('button').addEventListener('click', () => window.location.reload());
+    document.body.appendChild(aviso);
+  }
+
+  // Alteração que falhou ao gravar: o navegador pede confirmação antes de fechar ou recarregar a página
+  window.addEventListener('beforeunload', ev => {
+    if (!remote.falhaPendente) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
+
+  el('btnSair').addEventListener('click', async () => {
+    try {
+      await fetch('/auth/logout', { method: 'POST' });
+    } finally {
+      window.location.replace('/login');
+    }
+  });
+
   // ---------- Inicialização ----------
   // Tenta o servidor; se não houver, a interface continua no navegador
   async function init() {
@@ -1600,7 +1643,13 @@
       if (first) await loadServico(first.id);
       msg('Conectado ao servidor (PostGIS).');
     } catch (err) {
+      if (err.sessaoEncerrada) return;
       console.error('Falha ao carregar do servidor:', err);
+      if (location.protocol !== 'file:') {
+        // Página servida pela API: sem os dados do servidor, não abre o modo local (gravaria só no navegador)
+        bloquearSemServidor();
+        return;
+      }
       remote.mode = 'local';
       state = load();
       msg('Modo local: servidor não encontrado. Os dados ficam neste navegador.');

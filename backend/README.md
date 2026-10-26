@@ -65,7 +65,9 @@ Sem banco disponível, os testes são pulados, sem falhar.
 
 | Método e rota | O que faz |
 |---|---|
-| `GET /health` | conexão e versão do PostGIS |
+| `GET /health` | conexão e versão do PostGIS (público) |
+| `GET /login` | tela de entrada (público) |
+| `POST /auth/login`, `POST /auth/logout`, `GET /auth/eu` | entra (cria a sessão em cookie HTTP-only), sai (revoga a sessão) e informa o usuário logado |
 | `POST /clientes`, `GET /clientes`, `PUT /clientes/{id}` | cadastro, listagem e edição de clientes, com endereço padronizado (CEP `xxxxx-xxx`, UF em duas letras) |
 | `POST /servicos`, `GET /servicos?cliente_id=` | cria e lista serviços |
 | `GET /servicos/{id}` | serviço com camadas, vértices e confrontantes |
@@ -100,14 +102,83 @@ Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).
 
 ## Limites atuais
 
-- Uma base e uma empresa (`Empresa padrão`). Não há login nem multiusuário.
-- O frontend ainda salva no `localStorage`; a integração com esta API é o próximo passo.
+- Uma base e uma empresa (`Empresa padrão`). Os usuários entram com login próprio, mas todos veem os mesmos dados.
+- Sem cadastro pela web: usuários são criados pelo terminal do servidor (ver abaixo).
+- O bloqueio de tentativas de login fica em memória: vale enquanto houver um único processo da API.
 - Não há cálculo de sobreposição com o SIGEF (depende da camada oficial).
 - A conexão é aberta por requisição, sem pool. Adequado ao protótipo.
 
+## Login
+
+Todas as rotas de dados exigem sessão; sem ela respondem `401`. A página principal redireciona para `/login`.
+
+- A senha é guardada com scrypt; o cookie `gw_sessao` tem `HttpOnly`, `SameSite=Strict` e `Secure`.
+- O banco guarda só o hash SHA-256 do token. Sair apaga a sessão no servidor.
+- Sessões duram `GEOWORK_SESSAO_HORAS` horas (padrão 8).
+- Após 5 falhas seguidas para o mesmo e-mail, novas tentativas são recusadas por 15 minutos.
+- `GEOWORK_COOKIE_SEGURO=false` só para testar em HTTP local; em produção deixe ligado (HTTPS).
+
+Criar o usuário master no servidor (a senha é pedida sem aparecer na tela):
+
+```bash
+cd /opt/geowork/backend
+.venv/bin/python -m app.usuarios criar voce@exemplo.com --papel master
+```
+
+Trocar a senha de um usuário (encerra as sessões abertas dele):
+
+```bash
+.venv/bin/python -m app.usuarios senha voce@exemplo.com
+```
+
+## Produção (VPS)
+
+O sistema roda em https://geowork.savioescrevente.com: Caddy (HTTPS automático) na frente da API em
+`127.0.0.1:8000`, serviço `geowork.service`, código em `/opt/geowork` e credenciais em `/etc/geowork/env`
+(fora do repositório). Firewall libera só 22, 80 e 443. SSH só por chave.
+
+### Publicar uma versão
+
+```bash
+git commit ...            # o deploy publica só o que está commitado
+scripts/deploy.sh
+```
+
+O script envia o commit para `/opt/geowork-staging`, roda os testes no banco `geowork_test`, faz backup,
+aplica as migrações pendentes na produção, troca os arquivos e reinicia. Se os testes falharem, nada muda
+na produção. A versão publicada fica em `/opt/geowork/VERSAO`.
+
+### Backup
+
+`geowork-backup.timer` roda todo dia às 03:00 UTC (meia-noite em Brasília) e guarda 14 dias em
+`/var/backups/geowork`: `banco-AAAAMMDD-HHMM.dump` (pg_dump) e `anexos-AAAAMMDD-HHMM.tar.gz`.
+
+Backup manual: `/usr/local/bin/geowork-backup`. Restaurar o banco (apaga os dados atuais):
+
+```bash
+systemctl stop geowork
+sudo -u postgres dropdb geowork && sudo -u postgres createdb -O geowork geowork
+sudo -u postgres psql -d geowork -c "CREATE EXTENSION postgis;"
+sudo -u postgres pg_restore --no-owner --role=geowork --dbname=geowork < /var/backups/geowork/banco-AAAAMMDD-HHMM.dump
+systemctl start geowork
+```
+
+O `pg_restore` termina com 2 erros esperados e inofensivos: `must be owner of extension postgis` e
+`permission denied for table spatial_ref_sys` (a extensão já foi criada no passo anterior).
+
+Os backups ficam na própria VPS: protegem contra erro humano e falha da aplicação, mas não contra a perda
+do servidor. Para isso, copie-os para fora (ex.: `scp` para o seu computador) ou ative os snapshots do painel.
+
+### Interface
+
+O CSS é gerado pelo Tailwind CLI (`scripts/build-css.sh`) e commitado em `css/tailwind.css`. As bibliotecas
+de terceiros ficam em `vendor/` com versões fixas; a página não depende de CDN, só dos mapas de fundo.
+
 ## Migrações
 
-Bancos criados antes de uma mudança de schema recebem o arquivo de `db/migracoes/` correspondente:
+O deploy aplica automaticamente os arquivos novos de `db/migracoes/` e registra cada um em `schema_migracoes`.
+Para um banco antigo, sem essa tabela, os arquivos são:
 
 - `002_curvas_de_nivel.sql`: adiciona a categoria `curvas` em `camadas_desenho`.
 - `003_endereco_cliente.sql`: adiciona as colunas de endereço em `clientes`.
+- `004_usuarios_e_sessoes.sql`: cria as tabelas `usuarios` e `sessoes` do login.
