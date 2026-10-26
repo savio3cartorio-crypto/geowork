@@ -694,3 +694,46 @@ def test_mapa_google_sem_chave_e_com_chave(client, monkeypatch):
     assert len(chamadas) == 1 and chamadas[0]["layerTypes"] == ["layerRoadmap"]  # sessão reaproveitada
     att = client.get("/mapa/google/atribuicao?zoom=15&norte=-23&sul=-23.1&leste=-45.4&oeste=-45.6").json()
     assert att["copyright"].startswith("Imagens")
+
+
+def test_identificar_feicoes_no_ponto(client, monkeypatch):
+    import httpx
+
+    from app import identificar
+
+    quadrado = lambda x0, y0, x1, y1: {"type": "Polygon", "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
+
+    def falso(url, params):
+        if "lim_est_ibge" in url:
+            return {"features": [{"properties": {"sigla": "SP"}}]}
+        if url == identificar.SICAR_WFS:
+            assert params["typeNames"] == "sicar:sicar_imoveis_sp"
+            return {"features": [
+                {"properties": {"cod_imovel": "SP-1-AAA", "tipo_imovel": "IRU", "status_imovel": "AT", "area": 72.5635,
+                                "m_fiscal": 3.6282, "dat_criacao": "2023-01-27T02:21:52.540Z"},
+                 "geometry": quadrado(-45.6, -23.1, -45.4, -22.9)},
+                # caixa envolvente toca o ponto, mas o polígono não o contém
+                {"properties": {"cod_imovel": "SP-1-BBB"}, "geometry": quadrado(-45.49, -23.1, -45.4, -22.9)},
+            ]}
+        if "SIGMINE" in url:
+            assert "NOME" not in params["outFields"]  # titular não é pedido
+            return {"features": [{"properties": {"PROCESSO": "820601/1988", "NOME": "Fulano", "AREA_HA": 907.18},
+                                  "geometry": quadrado(-46, -24, -45, -22)}]}
+        raise httpx.ConnectError("fora do ar")
+
+    monkeypatch.setattr(identificar, "_get_json", falso)
+    r = client.get("/camadas/identificar?lat=-23.0&lng=-45.5&camadas=sicar,mineracao,terra_indigena&grau_px=0.00002")
+    assert r.status_code == 200, r.text
+    sicar, anm, ti = r.json()["camadas"]
+    assert [f["titulo"] for f in sicar["feicoes"]] == ["SP-1-AAA"]
+    campos = dict(sicar["feicoes"][0]["campos"])
+    assert campos["Tipo"] == "Imóvel rural (IRU)"
+    assert campos["Área declarada"] == "72,5635 ha"
+    assert campos["Inscrito em"] == "27/01/2023"
+    assert sicar["feicoes"][0]["geometry"]["type"] == "Polygon"
+    assert "Fulano" not in str(anm) and dict(anm["feicoes"][0]["campos"])["Área"] == "907,1800 ha"
+    assert ti == {"id": "terra_indigena", "nome": "Terras indígenas (FUNAI)", "ok": False,
+                  "erro": "fonte indisponível no momento", "feicoes": []}
+
+    assert client.get("/camadas/identificar?lat=-23&lng=-45.5&camadas=xyz").status_code == 422
+    assert client.get("/camadas/identificar?lat=40&lng=-45.5&camadas=sicar").status_code == 422

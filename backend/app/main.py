@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import consultas_publicas, docx_export, gpkg_export, mapa_google, repo, sicar_export
+from . import consultas_publicas, docx_export, gpkg_export, identificar, mapa_google, repo, sicar_export
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -285,6 +285,12 @@ def ladrilho_sicar(layers: str, bbox: str, width: int = 512, height: int = 512):
     except ConnectionError as erro:
         raise HTTPException(status_code=502, detail=str(erro)) from None
     return Response(content=conteudo, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+
+# Dados das feições das camadas públicas ativas no ponto clicado (botão Identificar do mapa)
+@api.get("/camadas/identificar")
+def identificar_feicoes(lat: float, lng: float, camadas: str, grau_px: float = 0.00001):
+    return identificar.identificar([c for c in camadas.split(",") if c], lng, lat, grau_px)
 
 
 # Prazos de complementação vencidos ou vencendo nos próximos `dias` (alerta da tela inicial)

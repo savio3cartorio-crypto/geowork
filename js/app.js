@@ -1867,6 +1867,7 @@
 
   // ---------- Eventos ----------
   map.on('click', e => {
+    if (identificacao.ligada) return identificarEm(e.latlng);
     if (!svc()) return msg('Crie ou selecione um serviço antes de desenhar.', true);
     addDraftPoint(snapTarget(e.latlng));
     if (LAYERS[ui.layer].point) return commitDraft(); // ponto: um clique basta
@@ -1881,7 +1882,8 @@
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && ui.draft) {
+    if (e.key === 'Escape' && identificacao.ligada) ligarIdentificar(false);
+    else if (e.key === 'Escape' && ui.draft) {
       ui.draft = null;
       msg('Desenho cancelado.');
       refresh();
@@ -1949,6 +1951,108 @@
       } else map.removeLayer(camadasPublicas[id]);
     });
   })();
+
+  // Identificar: com o botão ligado, o clique no mapa mostra os dados das camadas públicas ativas no ponto
+  // (em vez de desenhar). A consulta passa pelo servidor, que lê só campos sem dados pessoais.
+  const identificacao = { ligada: false, destaque: L.featureGroup().addTo(map), popup: null };
+
+  function ligarIdentificar(ligar) {
+    identificacao.ligada = ligar;
+    el('btnIdentificar').classList.toggle('bg-sky-700', ligar);
+    el('btnIdentificar').classList.toggle('bg-slate-800', !ligar);
+    el('btnIdentificar').classList.toggle('border-sky-400', ligar);
+    el('btnIdentificar').classList.toggle('border-slate-600', !ligar);
+    el('btnIdentificar').setAttribute('aria-pressed', String(ligar));
+    map.getContainer().style.cursor = ligar ? 'help' : '';
+    if (!ligar) {
+      identificacao.destaque.clearLayers();
+      map.closePopup();
+    } else msg('Identificar ligado: clique numa feição de uma camada pública ativa. Esc desliga.');
+  }
+
+  function linhaCampo(rotulo, valor) {
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.className = 'text-left font-normal text-slate-500 pr-2 align-top whitespace-nowrap';
+    th.textContent = rotulo;
+    const td = document.createElement('td');
+    td.className = 'text-slate-800 break-all';
+    td.textContent = valor;
+    tr.append(th, td);
+    return tr;
+  }
+
+  function conteudoIdentificacao(dados) {
+    const caixa = document.createElement('div');
+    caixa.className = 'text-[11px] space-y-2';
+    let total = 0;
+    dados.camadas.forEach(c => {
+      const bloco = document.createElement('div');
+      const cab = document.createElement('div');
+      cab.className = 'font-bold text-slate-700 uppercase text-[10px] border-b border-slate-200 pb-0.5';
+      cab.textContent = c.nome;
+      bloco.append(cab);
+      if (!c.ok || !c.feicoes.length) {
+        const nada = document.createElement('div');
+        nada.className = c.ok ? 'text-slate-500' : 'text-red-600';
+        nada.textContent = c.ok ? 'Nada neste ponto.' : `Não respondeu: ${c.erro}.`;
+        bloco.append(nada);
+      }
+      c.feicoes.forEach(f => {
+        total += 1;
+        const titulo = document.createElement(f.geometry ? 'button' : 'div');
+        titulo.className = 'font-semibold text-slate-900 mt-1 text-left' + (f.geometry ? ' underline decoration-dotted' : '');
+        titulo.textContent = f.titulo;
+        if (f.geometry) {
+          titulo.type = 'button';
+          titulo.title = 'Aproximar desta feição';
+          titulo.addEventListener('click', () => map.fitBounds(L.geoJSON(f.geometry).getBounds(), { maxZoom: 17 }));
+        }
+        const tabela = document.createElement('table');
+        f.campos.forEach(([rotulo, valor]) => tabela.append(linhaCampo(rotulo, valor)));
+        bloco.append(titulo, tabela);
+      });
+      caixa.append(bloco);
+    });
+    const rodape = document.createElement('div');
+    rodape.className = 'text-[10px] text-slate-400';
+    rodape.textContent = total ? 'Dados públicos das fontes oficiais, como publicados.' : 'Nenhuma feição das camadas ativas neste ponto.';
+    caixa.append(rodape);
+    return caixa;
+  }
+
+  async function identificarEm(latlng) {
+    const ativas = CamadasPublicas.CATALOGO.filter(c => camadasPublicas[c.id] && map.hasLayer(camadasPublicas[c.id]));
+    if (!ativas.length) return msg('Ative ao menos uma camada pública oficial para identificar.', true);
+    if (remote.mode !== 'api') return msg('Identificar precisa do servidor do GeoWork.', true);
+    const b = map.getBounds();
+    const params = new URLSearchParams({
+      lat: latlng.lat.toFixed(7), lng: latlng.lng.toFixed(7), camadas: ativas.map(c => c.id).join(','),
+      grau_px: String((b.getEast() - b.getWest()) / map.getSize().x),
+    });
+    identificacao.destaque.clearLayers();
+    identificacao.popup = L.popup({ maxWidth: 340, maxHeight: 320, minWidth: 240 })
+      .setLatLng(latlng).setContent('Consultando as bases públicas…').openOn(map);
+    const popup = identificacao.popup;
+    try {
+      const dados = await api(`/camadas/identificar?${params}`);
+      if (identificacao.popup !== popup) return; // já houve outro clique
+      dados.camadas.forEach(c => c.feicoes.forEach(f => {
+        if (f.geometry) {
+          L.geoJSON(f.geometry, { interactive: false, style: { color: '#facc15', weight: 3, dashArray: '6 4', fillOpacity: 0.08 } })
+            .addTo(identificacao.destaque);
+        }
+      }));
+      popup.setContent(conteudoIdentificacao(dados));
+    } catch (err) {
+      if (!err.sessaoEncerrada) popup.setContent(`Falha ao consultar: ${err.message}`);
+    }
+  }
+
+  el('btnIdentificar').addEventListener('click', () => ligarIdentificar(!identificacao.ligada));
+  map.on('popupclose', e => {
+    if (e.popup === identificacao.popup) identificacao.destaque.clearLayers();
+  });
 
   // O Mapa da ONR não abre numa coordenada pelo endereço: copia a do imóvel para colar na busca de lá
   el('btnMapaOnr').addEventListener('click', async () => {
