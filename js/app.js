@@ -1584,6 +1584,10 @@
 
   async function importFile(file) {
     const name = file.name.toLowerCase();
+    if (!svc()) {
+      el('fileImport').value = '';
+      return msg('Este cliente ainda não tem serviço. Clique em +Rev (botão no topo) para criar o serviço e depois importe o arquivo.', true);
+    }
     try {
       if (name.endsWith('.csv')) {
         importCsv(await file.text());
