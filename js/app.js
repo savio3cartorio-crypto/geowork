@@ -3,6 +3,8 @@
   const STORAGE_KEY = 'geowork:v1';
   const RL_PERCENT = 20; // referência de Reserva Legal; varia por bioma e região, confirmar com o RT
   const SNAP_PX = 12;
+  // Mesmo padrão do servidor (backend/app/schemas.py): UF, código IBGE de 7 dígitos e 32 hexadecimais
+  const PADRAO_CAR = /^[A-Z]{2}-\d{7}-[0-9A-F]{32}$/;
 
   const LAYERS = {
     perimetro: { label: 'Perímetro oficial do imóvel', color: '#38bdf8', closed: true, dxf: 'PERIMETRO' },
@@ -108,6 +110,10 @@
       } catch (err) {
         // resposta sem JSON: fica com o texto do status
       }
+      // Erros de validação do FastAPI vêm como lista de {loc, msg}; mostra só as mensagens
+      if (Array.isArray(detail)) {
+        detail = detail.map(d => String(d.msg || '').replace(/^Value error, /, '')).join('; ');
+      }
       throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
     }
     return res.json();
@@ -142,7 +148,8 @@
       mf: d.modulo_fiscal_ha ? Number(d.modulo_fiscal_ha) : null,
       docs: { matricula: d.matricula || '', incra: d.codigo_sncr || '', car: d.codigo_car || '' },
     };
-    d.camadas.forEach(c => {
+    // Curvas de nível têm rota própria (mostrarCurvasSalvas): não entram nas camadas de desenho
+    d.camadas.filter(c => c.categoria !== 'curvas').forEach(c => {
       const coords = c.geometry.type === 'Polygon' ? c.geometry.coordinates[0] : c.geometry.coordinates;
       s.layers[c.categoria].push(coords);
     });
@@ -234,7 +241,13 @@
 
   async function loadRemoteServicos() {
     const [clientes, servicos] = await Promise.all([api('/clientes'), api('/servicos')]);
-    state.clients = clientes.map(c => ({ id: c.id, name: c.nome, doc: c.cpf_cnpj }));
+    state.clients = clientes.map(c => ({
+      id: c.id,
+      name: c.nome,
+      doc: c.cpf_cnpj,
+      contato: { email: c.email, telefone: c.telefone },
+      endereco: enderecoDe(c),
+    }));
     state.services = servicos.map(summaryOf);
   }
 
@@ -242,6 +255,7 @@
     await flushSync();
     const detail = await api(`/servicos/${id}`);
     state.services = state.services.map(x => (String(x.id) === String(id) ? fromRemote(detail) : x));
+    mostrarCurvasSalvas(detail.camadas);
   }
 
   // Anexos PDF do serviço (ex.: demonstrativo do CAR); só existem no modo remoto
@@ -296,8 +310,12 @@
   async function selectService(id) {
     state.activeServiceId = id ?? null;
     ui.draft = null;
-    if (remote.mode !== 'api') return commitChanges();
+    if (remote.mode !== 'api') {
+      removerCurvas(); // no modo local as curvas não são salvas: não ficam de um serviço para outro
+      return commitChanges();
+    }
     if (id != null) await loadServico(id);
+    else removerCurvas();
     await loadArquivos();
     refresh();
   }
@@ -671,6 +689,31 @@
     return o;
   }
 
+  // Campos de endereço do cliente, com texto vazio onde não há valor
+  function enderecoDe(c) {
+    return {
+      cep: c.cep || '',
+      logradouro: c.logradouro || '',
+      numero: c.numero || '',
+      complemento: c.complemento || '',
+      bairro: c.bairro || '',
+      municipio: c.municipio || '',
+      uf: c.uf || '',
+    };
+  }
+
+  // Endereço do cliente selecionado. Só edita com o servidor; no modo local fica desativado
+  function renderEndereco() {
+    const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
+    const ativo = remote.mode === 'api' && !!c;
+    document.querySelectorAll('[data-end]').forEach(input => {
+      input.value = ativo ? c.endereco[input.dataset.end] : '';
+      input.disabled = !ativo;
+    });
+    el('btnSalvarEndereco').disabled = !ativo;
+    el('enderecoStatus').textContent = remote.mode === 'api' ? '' : 'Disponível com o servidor.';
+  }
+
   function docsToInputs() {
     const s = svc();
     document.querySelectorAll('[data-doc]').forEach(input => {
@@ -818,6 +861,16 @@
     checks.push(
       semConf ? ['aviso', `${semConf} trecho(s) sem confrontante informado`] : ['ok', 'Todos os trechos têm confrontante']
     );
+    if (pm.open.length >= 3) {
+      // Ângulos internos no plano UTM: espigões (quase 0°) e reentrâncias muito fechadas (quase 360°)
+      const angulos = Geo.interiorAngles(pm.summary.utmPolygons[0][0]);
+      const extremos = angulos.map((a, i) => ({ a, i })).filter(({ a }) => a < 5 || a > 355);
+      checks.push(
+        extremos.length
+          ? ['aviso', `Ângulos extremos (< 5° ou > 355°): ${extremos.map(({ a, i }) => `${codeOf(s, i)} ${a.toFixed(1)}°`).join(', ')}`]
+          : ['ok', `Ângulos internos entre ${Math.min(...angulos).toFixed(1)}° e ${Math.max(...angulos).toFixed(1)}°`]
+      );
+    }
 
     const marks = { ok: '✓ ', aviso: '⚠ ', erro: '✗ ' };
     const colors = { ok: 'text-emerald-400', aviso: 'text-amber-300', erro: 'text-rose-400' };
@@ -867,6 +920,7 @@
     renderDesenho();
     renderLimites();
     docsToInputs();
+    renderEndereco();
     updateZoneLabel();
   }
 
@@ -954,6 +1008,81 @@
     refresh();
   }
 
+  // ---------- Curvas de nível (não grava no servidor) ----------
+  let curvasLayer = null;
+  let curvasAtuais = null;
+
+  function removerCurvas() {
+    if (curvasLayer) map.removeLayer(curvasLayer);
+    curvasLayer = null;
+    curvasAtuais = null;
+    el('cotaResumo').textContent = '';
+  }
+
+  function mostrarCurvas(geojson, { intervalo, minZ, maxZ, sufixo = '', ajustar = true }) {
+    removerCurvas();
+    curvasAtuais = geojson;
+    curvasLayer = L.geoJSON(geojson, {
+      style: { color: '#f59e0b', weight: 1 },
+      onEachFeature: (f, layer) => layer.bindTooltip(`${f.properties.cota} m`, { sticky: true }),
+    }).addTo(map);
+    el('cotaResumo').textContent =
+      `${geojson.features.length} curva(s) de ${intervalo} m, cotas de ${minZ.toFixed(2)} a ${maxZ.toFixed(2)} m${sufixo}.`;
+    if (ajustar && geojson.features.length) map.fitBounds(curvasLayer.getBounds());
+  }
+
+  // Mostra as curvas salvas no serviço carregado (categoria 'curvas' do detalhe)
+  function mostrarCurvasSalvas(camadas) {
+    const feicoes = camadas.filter(c => c.categoria === 'curvas');
+    if (!feicoes.length) return removerCurvas();
+    const cotas = feicoes.map(c => c.propriedades.cota);
+    mostrarCurvas(
+      {
+        type: 'FeatureCollection',
+        features: feicoes.map(c => ({ type: 'Feature', properties: { cota: c.propriedades.cota }, geometry: c.geometry })),
+      },
+      {
+        intervalo: feicoes[0].propriedades.intervalo,
+        minZ: Math.min(...cotas),
+        maxZ: Math.max(...cotas),
+        sufixo: ' (salvas no serviço)',
+        ajustar: false,
+      }
+    );
+  }
+
+  // Grava as curvas no serviço ativo (modo remoto). Retorna false quando não há serviço no servidor
+  async function salvarCurvas(res) {
+    const s = svc();
+    if (remote.mode !== 'api' || !s || !s.remote) return false;
+    await api(`/servicos/${s.id}/curvas`, {
+      method: 'PUT',
+      body: {
+        intervalo: res.intervalo,
+        feicoes: res.geojson.features.map(f => ({ cota: f.properties.cota, partes: f.geometry.coordinates })),
+      },
+    });
+    return true;
+  }
+
+  async function gerarCurvas(file) {
+    const intervalo = parseFloat(String(el('cotaIntervalo').value).replace(',', '.'));
+    try {
+      const pontos = Contours.parseCsv(await file.text(), zoneOf(map.getCenter().lng));
+      const res = Contours.build(pontos, intervalo);
+      mostrarCurvas(res.geojson, {
+        intervalo: res.intervalo,
+        minZ: res.minZ,
+        maxZ: res.maxZ,
+        sufixo: ` a partir de ${res.pontos} ponto(s)`,
+      });
+      const salvo = await salvarCurvas(res);
+      msg(salvo ? 'Curvas de nível geradas e salvas no serviço.' : 'Curvas de nível geradas.');
+    } catch (err) {
+      msg(`Erro nas curvas: ${err.message}`, true);
+    }
+  }
+
   async function importFile(file) {
     const name = file.name.toLowerCase();
     try {
@@ -1011,16 +1140,71 @@
     return { s, pm };
   }
 
+  let memFormat = 'corrido';
+
   function gerarMemorial(format) {
     const ctx = entregaContext();
     if (!ctx) return;
     const { s, pm } = ctx;
+    memFormat = format;
     el('output').value = Memorial.build(s.name, pm.summary, {
       format,
       codes: pm.open.map((_, i) => codeOf(s, i)),
       confrontantes: pm.segments.map((_, i) => (s.meta.segs[i] && s.meta.segs[i].nome) || '[a informar]'),
     });
     msg(`Memorial ${format === 'corrido' ? 'em texto corrido' : 'tabular'} gerado.`);
+  }
+
+  // Gera o .docx no servidor a partir do texto do memorial exibido na área de saída
+  async function baixarMemorialDocx() {
+    const texto = el('output').value.trim();
+    if (!texto) return msg('Gere o memorial antes de baixar o .docx.', true);
+    if (remote.mode !== 'api') return msg('O download do .docx precisa do servidor.', true);
+    const [titulo, ...resto] = texto.split('\n');
+    try {
+      const res = await fetch('/memorial.docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titulo: titulo.trim().slice(0, 200) || 'Memorial descritivo',
+          formato: memFormat,
+          linhas: resto.length ? resto : [''],
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `memorial-${memFormat}.docx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      msg('Memorial .docx baixado.');
+    } catch (err) {
+      msg(`Erro ao gerar o .docx: ${err.message}`, true);
+    }
+  }
+
+  // Base vetorial do serviço salvo: uma camada por categoria, em SIRGAS 2000 (GeoPackage)
+  async function baixarGpkg() {
+    const s = svc();
+    if (remote.mode !== 'api' || !s || !s.remote) return msg('A base .gpkg precisa do servidor e de um serviço salvo.', true);
+    try {
+      await flushSync(); // grava antes as alterações pendentes para a base sair atualizada
+      const res = await fetch(`/servicos/${s.id}/exportar.gpkg`);
+      if (!res.ok) {
+        const corpo = await res.json().catch(() => ({}));
+        throw new Error(typeof corpo.detail === 'string' ? corpo.detail : `HTTP ${res.status}`);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `servico-${s.id}.gpkg`;
+      link.click();
+      URL.revokeObjectURL(url);
+      msg('Base .gpkg baixada.');
+    } catch (err) {
+      msg(`Erro ao gerar o .gpkg: ${err.message}`, true);
+    }
   }
 
   function gerarSigef() {
@@ -1142,13 +1326,33 @@
     commitChanges();
   }
 
-  // Busca: coordenadas decimais no mapa; texto livre vai ao Nominatim (OSM).
-  // Busca por código CAR não tem endpoint configurado.
+  // Busca: coordenadas decimais no mapa; depois os serviços da base (CAR, matrícula, nome, cliente);
+  // o que sobrar vai ao Nominatim (OSM).
+  async function buscarNaBase(text) {
+    const achados = await api(`/buscar?q=${encodeURIComponent(text)}`);
+    if (!achados.length) return false;
+    const primeiro = achados[0];
+    state.activeClientId = primeiro.cliente_id;
+    await selectService(primeiro.id);
+    msg(achados.length > 1
+      ? `${achados.length} resultados; mostrando "${primeiro.nome_imovel}".`
+      : `Encontrado: ${primeiro.nome_imovel}.`);
+    return true;
+  }
+
   async function goToLocation() {
     const text = el('searchInput').value.trim();
     if (!text) return;
     const ll = Cad.parseLatLng(text);
     if (ll) return map.setView([ll.lat, ll.lng], 16);
+    if (remote.mode === 'api' && text.length >= 2) {
+      try {
+        if (await buscarNaBase(text)) return;
+      } catch (err) {
+        msg(`Falha na busca na base: ${err.message}`, true);
+        return;
+      }
+    }
     try {
       const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&q=${encodeURIComponent(text)}`;
       const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
@@ -1252,6 +1456,34 @@
     const file = e.target.files[0];
     if (file) importFile(file);
   });
+  el('cotaInput').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    try {
+      if (file) await gerarCurvas(file);
+    } finally {
+      e.target.value = '';
+    }
+  });
+  el('btnCurvasLimpar').addEventListener('click', async () => {
+    const s = svc();
+    removerCurvas();
+    if (remote.mode !== 'api' || !s || !s.remote) return;
+    try {
+      await api(`/servicos/${s.id}/curvas`, { method: 'DELETE' });
+      msg('Curvas removidas do serviço.');
+    } catch (err) {
+      msg(`Erro ao remover as curvas: ${err.message}`, true);
+    }
+  });
+  el('btnCurvasBaixar').addEventListener('click', () => {
+    if (!curvasAtuais) return msg('Gere as curvas antes de baixar.', true);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(curvasAtuais)], { type: 'application/geo+json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'curvas-de-nivel.geojson';
+    link.click();
+    URL.revokeObjectURL(url);
+  });
   el('arquivoInput').addEventListener('change', async e => {
     const file = e.target.files[0];
     const s = svc();
@@ -1273,7 +1505,16 @@
     input.addEventListener('change', () => {
       const s = svc();
       if (!s) return;
-      s.docs[input.dataset.doc] = input.value.trim();
+      let valor = input.value.trim();
+      if (input.dataset.doc === 'car' && valor) {
+        valor = valor.toUpperCase();
+        if (!PADRAO_CAR.test(valor)) {
+          input.value = s.docs.car || '';
+          return msg('Código CAR fora do formato UF-CódigoIBGE-HASH (ex.: SP-3538709-E4A558DDFC5649D0A3524EB344ECC52D).', true);
+        }
+      }
+      s.docs[input.dataset.doc] = valor;
+      input.value = valor;
       commitChanges();
     })
   );
@@ -1308,6 +1549,29 @@
   // Pilar 4
   el('btnMemNotarial').addEventListener('click', () => gerarMemorial('corrido'));
   el('btnMemTabular').addEventListener('click', () => gerarMemorial('tabular'));
+  el('btnMemDocx').addEventListener('click', baixarMemorialDocx);
+  el('btnGpkg').addEventListener('click', baixarGpkg);
+  el('btnSalvarEndereco').addEventListener('click', async () => {
+    const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
+    if (remote.mode !== 'api' || !c) return;
+    const campos = {};
+    document.querySelectorAll('[data-end]').forEach(input => {
+      campos[input.dataset.end] = input.value.trim();
+    });
+    try {
+      const salvo = await api(`/clientes/${c.id}`, {
+        method: 'PUT',
+        body: { nome: c.name, cpf_cnpj: c.doc, email: c.contato.email, telefone: c.contato.telefone, ...campos },
+      });
+      c.endereco = enderecoDe(salvo);
+      renderEndereco();
+      el('enderecoStatus').textContent = 'Endereço salvo.';
+      msg('Endereço do cliente salvo.');
+    } catch (err) {
+      el('enderecoStatus').textContent = '';
+      msg(`Erro no endereço: ${err.message}`, true);
+    }
+  });
   el('btnSigef').addEventListener('click', gerarSigef);
   el('btnDxf').addEventListener('click', gerarDxf);
   el('btnGeojson').addEventListener('click', gerarGeojson);
@@ -1336,6 +1600,7 @@
       if (first) await loadServico(first.id);
       msg('Conectado ao servidor (PostGIS).');
     } catch (err) {
+      console.error('Falha ao carregar do servidor:', err);
       remote.mode = 'local';
       state = load();
       msg('Modo local: servidor não encontrado. Os dados ficam neste navegador.');

@@ -66,7 +66,7 @@ Sem banco disponível, os testes são pulados, sem falhar.
 | Método e rota | O que faz |
 |---|---|
 | `GET /health` | conexão e versão do PostGIS |
-| `POST /clientes`, `GET /clientes` | cadastro e listagem de clientes |
+| `POST /clientes`, `GET /clientes`, `PUT /clientes/{id}` | cadastro, listagem e edição de clientes, com endereço padronizado (CEP `xxxxx-xxx`, UF em duas letras) |
 | `POST /servicos`, `GET /servicos?cliente_id=` | cria e lista serviços |
 | `GET /servicos/{id}` | serviço com camadas, vértices e confrontantes |
 | `POST /servicos/{id}/revisoes` | nova revisão: copia camadas, vértices e confrontantes |
@@ -75,6 +75,10 @@ Sem banco disponível, os testes são pulados, sem falhar.
 | `POST /servicos/{id}/offset` | cria a paralela de uma feição (ver abaixo) |
 | `POST /servicos/{id}/arquivos` | anexa um PDF em base64 (ex.: demonstrativo do CAR, categoria `recibo_car`); até 10 MB; o arquivo vai para `GEOWORK_STORAGE_DIR` (padrão `backend/storage/`) |
 | `GET /servicos/{id}/arquivos`, `GET /arquivos/{id}` | lista os anexos do serviço e baixa um deles |
+| `GET /buscar?q=` | busca serviços por nome do imóvel, código CAR, código INCRA/SNCR, matrícula, nome ou documento do cliente |
+| `PUT /servicos/{id}/curvas`, `DELETE /servicos/{id}/curvas` | grava (substitui) ou remove as curvas de nível; cada cota é uma linha da categoria `curvas` com `propriedades.cota` |
+| `GET /servicos/{id}/exportar.gpkg` | base vetorial em GeoPackage (SIRGAS 2000, EPSG:4674): uma camada por categoria (`perimetro`, `rl`, `app`, `hidro`, `edificacao`, `curvas`) e `vertices` com código, altitude e precisão |
+| `POST /memorial.docx` | gera o memorial em Word a partir das linhas do texto (`corrido` ou `tabular`) |
 
 Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).
 
@@ -100,3 +104,10 @@ Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).
 - O frontend ainda salva no `localStorage`; a integração com esta API é o próximo passo.
 - Não há cálculo de sobreposição com o SIGEF (depende da camada oficial).
 - A conexão é aberta por requisição, sem pool. Adequado ao protótipo.
+
+## Migrações
+
+Bancos criados antes de uma mudança de schema recebem o arquivo de `db/migracoes/` correspondente:
+
+- `002_curvas_de_nivel.sql`: adiciona a categoria `curvas` em `camadas_desenho`.
+- `003_endereco_cliente.sql`: adiciona as colunas de endereço em `clientes`.

@@ -180,6 +180,27 @@ const Geo = (() => {
     return sum / 2;
   }
 
+  // Ângulos internos (graus) de cada vértice de um anel planar (UTM). Aceita anel com ou sem o ponto final repetido.
+  // Um vértice convexo tem ângulo interno < 180°; um côncavo (reentrante), > 180°.
+  function interiorAngles(ring) {
+    const pts = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+      ? ring.slice(0, -1)
+      : ring;
+    const orientation = Math.sign(signedArea(pts)) || 1;
+    return pts.map((c, i) => {
+      const p = pts[(i - 1 + pts.length) % pts.length];
+      const n = pts[(i + 1) % pts.length];
+      const ux = p[0] - c[0];
+      const uy = p[1] - c[1];
+      const vx = n[0] - c[0];
+      const vy = n[1] - c[1];
+      const dot = ux * vx + uy * vy;
+      const cross = (c[0] - p[0]) * (n[1] - c[1]) - (c[1] - p[1]) * (n[0] - c[0]);
+      const alpha = (Math.acos(Math.max(-1, Math.min(1, dot / (Math.hypot(ux, uy) * Math.hypot(vx, vy))))) * 180) / Math.PI;
+      return cross * orientation > 0 ? alpha : 360 - alpha;
+    });
+  }
+
   // Paralela planar (em UTM) por deslocamento das arestas e interseção das retas vizinhas.
   // closed = true: contorno fechado (pode vir com o ponto final repetido).
   // Distância positiva expande o polígono, ou vai à esquerda do traçado (linha).
@@ -239,5 +260,6 @@ const Geo = (() => {
     bearingLabel,
     ringSegments,
     validate,
+    interiorAngles,
   };
 })();

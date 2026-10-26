@@ -17,7 +17,11 @@ from typing import Any
 
 from psycopg import Connection
 
-from .schemas import ArquivoIn, ClienteIn, ConfrontanteIn, ServicoIn, VerticeMeta
+from .schemas import ArquivoIn, ClienteIn, ConfrontanteIn, CurvasIn, ServicoIn, VerticeMeta
+
+COLUNAS_CLIENTE = (
+    "id, nome, cpf_cnpj, email, telefone, cep, logradouro, numero, complemento, bairro, municipio, uf"
+)
 
 CATEGORIAS_FECHADAS = {"rl", "app", "edificacao"}  # polígonos
 CATEGORIAS_LINEARES = {"hidro"}  # linhas
@@ -121,17 +125,37 @@ def ensure_default_empresa(conn: Connection) -> int:
 def create_cliente(conn: Connection, data: ClienteIn) -> dict:
     empresa_id = ensure_default_empresa(conn)
     return conn.execute(
-        """
-        INSERT INTO clientes (empresa_id, nome, cpf_cnpj, email, telefone)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING id, nome, cpf_cnpj, email, telefone
+        f"""
+        INSERT INTO clientes (empresa_id, nome, cpf_cnpj, email, telefone,
+                              cep, logradouro, numero, complemento, bairro, municipio, uf)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING {COLUNAS_CLIENTE}
         """,
-        (empresa_id, data.nome, data.cpf_cnpj, data.email, data.telefone),
+        (empresa_id, data.nome, data.cpf_cnpj, data.email, data.telefone, *_valores_endereco(data)),
+    ).fetchone()
+
+
+def _valores_endereco(data: ClienteIn) -> tuple:
+    return (data.cep, data.logradouro, data.numero, data.complemento, data.bairro, data.municipio, data.uf)
+
+
+def update_cliente(conn: Connection, cliente_id: int, data: ClienteIn) -> dict:
+    if conn.execute("SELECT 1 FROM clientes WHERE id = %s", (cliente_id,)).fetchone() is None:
+        raise LookupError(f"cliente {cliente_id} não encontrado")
+    return conn.execute(
+        f"""
+        UPDATE clientes
+        SET nome = %s, cpf_cnpj = %s, email = %s, telefone = %s,
+            cep = %s, logradouro = %s, numero = %s, complemento = %s, bairro = %s, municipio = %s, uf = %s
+        WHERE id = %s
+        RETURNING {COLUNAS_CLIENTE}
+        """,
+        (data.nome, data.cpf_cnpj, data.email, data.telefone, *_valores_endereco(data), cliente_id),
     ).fetchone()
 
 
 def list_clientes(conn: Connection) -> list[dict]:
-    return conn.execute("SELECT id, nome, cpf_cnpj, email, telefone FROM clientes ORDER BY nome").fetchall()
+    return conn.execute(f"SELECT {COLUNAS_CLIENTE} FROM clientes ORDER BY nome").fetchall()
 
 
 # ---------- serviços ----------
@@ -165,11 +189,37 @@ def list_servicos(conn: Connection, cliente_id: int | None) -> list[dict]:
     ).fetchall()
 
 
+def _escapar_like(termo: str) -> str:
+    return termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def buscar_servicos(conn: Connection, termo: str, limite: int = 50) -> list[dict]:
+    """Busca na base por nome do imóvel, código CAR, código INCRA/SNCR, matrícula, nome e documento do cliente."""
+    padrao = f"%{_escapar_like(termo.strip())}%"
+    return conn.execute(
+        """
+        SELECT s.id, s.cliente_id, s.nome_imovel, s.revisao, s.codigo_car, s.matricula,
+               c.nome AS cliente_nome
+        FROM servicos s
+        LEFT JOIN clientes c ON c.id = s.cliente_id
+        WHERE s.nome_imovel ILIKE %(p)s
+           OR s.codigo_car ILIKE %(p)s
+           OR s.codigo_sncr ILIKE %(p)s
+           OR s.matricula ILIKE %(p)s
+           OR c.nome ILIKE %(p)s
+           OR c.cpf_cnpj ILIKE %(p)s
+        ORDER BY s.nome_imovel, s.revisao
+        LIMIT %(limite)s
+        """,
+        {"p": padrao, "limite": limite},
+    ).fetchall()
+
+
 def get_servico(conn: Connection, servico_id: int) -> dict:
     servico = _require_servico(conn, servico_id)
     camadas = conn.execute(
         """
-        SELECT categoria, ordem, ST_AsGeoJSON(geom)::json AS geometry
+        SELECT categoria, ordem, ST_AsGeoJSON(geom)::json AS geometry, propriedades
         FROM camadas_desenho WHERE servico_id = %s ORDER BY categoria, ordem
         """,
         (servico_id,),
@@ -464,3 +514,68 @@ def caminho_arquivo(conn: Connection, arquivo_id: int, storage_dir: Path) -> tup
     if not caminho.is_file():
         raise LookupError(f"arquivo {arquivo_id} não está mais no armazenamento")
     return row["nome_arquivo"], caminho
+
+
+# ---------- curvas de nível (categoria 'curvas': uma linha por cota, com propriedades {"cota": ...}) ----------
+
+def put_curvas(conn: Connection, servico_id: int, data: CurvasIn) -> dict:
+    _require_servico(conn, servico_id)
+    # Valida tudo antes de apagar: uma entrada ruim não deixa as curvas vazias
+    geometrias = []
+    for curva in data.feicoes:
+        partes = []
+        for parte in curva.partes:
+            if len(parte) < 2:
+                raise ValueError("cada parte de curva precisa de pelo menos 2 pontos")
+            partes.append(parte)
+        geometrias.append((curva.cota, {"type": "MultiLineString", "coordinates": partes}))
+    conn.execute(
+        "DELETE FROM camadas_desenho WHERE servico_id = %s AND categoria = 'curvas'",
+        (servico_id,),
+    )
+    for ordem, (cota, geojson) in enumerate(geometrias):
+        conn.execute(
+            """
+            INSERT INTO camadas_desenho (servico_id, categoria, ordem, geom, propriedades)
+            VALUES (%s, 'curvas', %s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4674), %s)
+            """,
+            (servico_id, ordem, json.dumps(geojson), json.dumps({"cota": cota, "intervalo": data.intervalo})),
+        )
+    return {"categoria": "curvas", "feicoes": len(geometrias), "intervalo": data.intervalo}
+
+
+def apagar_curvas(conn: Connection, servico_id: int) -> dict:
+    _require_servico(conn, servico_id)
+    conn.execute("DELETE FROM camadas_desenho WHERE servico_id = %s AND categoria = 'curvas'", (servico_id,))
+    return {"servico_id": servico_id, "curvas": "removidas"}
+
+
+# ---------- base vetorial (GeoPackage) ----------
+
+def camadas_para_gpkg(conn: Connection, servico_id: int) -> dict[str, list[dict]]:
+    _require_servico(conn, servico_id)
+    linhas = conn.execute(
+        """
+        SELECT categoria, ordem, ST_AsBinary(geom) AS wkb, propriedades
+        FROM camadas_desenho WHERE servico_id = %s ORDER BY categoria, ordem
+        """,
+        (servico_id,),
+    ).fetchall()
+    vertices = conn.execute(
+        """
+        SELECT ordem, codigo, tipo, altitude, sigma_x, sigma_y, sigma_z,
+               metodo_posicionamento AS metodo, ST_AsBinary(geom) AS wkb
+        FROM vertices_sigef WHERE servico_id = %s ORDER BY ordem
+        """,
+        (servico_id,),
+    ).fetchall()
+    camadas: dict[str, list[dict]] = {}
+    for row in linhas:
+        atributos = {"wkb": bytes(row["wkb"]), "ordem": row["ordem"]}
+        if row["categoria"] == "curvas":
+            atributos["cota"] = row["propriedades"].get("cota")
+            atributos["intervalo"] = row["propriedades"].get("intervalo")
+        camadas.setdefault(row["categoria"], []).append(atributos)
+    camadas["vertices"] = [{**v, "wkb": bytes(v["wkb"])} for v in vertices]
+    return camadas
+

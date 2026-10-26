@@ -2,16 +2,16 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import repo
+from . import docx_export, gpkg_export, repo
 from .config import settings
 from .db import connect
-from .schemas import ArquivoIn, CamadaIn, ClienteIn, OffsetIn, PerimetroIn, ServicoIn, ServicoUpdate
+from .schemas import ArquivoIn, CamadaIn, ClienteIn, CurvasIn, MemorialDocxIn, OffsetIn, PerimetroIn, ServicoIn, ServicoUpdate
 
 # Raiz do projeto: onde ficam index.html, css/ e js/ (servidos pela própria API)
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,6 +70,12 @@ def criar_cliente(data: ClienteIn):
         return repo.create_cliente(conn, data)
 
 
+@app.put("/clientes/{cliente_id}")
+def atualizar_cliente(cliente_id: int, data: ClienteIn):
+    with connect() as conn:
+        return repo.update_cliente(conn, cliente_id, data)
+
+
 @app.get("/clientes")
 def listar_clientes():
     with connect() as conn:
@@ -88,6 +94,12 @@ def criar_servico(data: ServicoIn):
 def listar_servicos(cliente_id: int | None = None):
     with connect() as conn:
         return repo.list_servicos(conn, cliente_id)
+
+
+@app.get("/buscar")
+def buscar(q: str = Query(min_length=2, max_length=100)):
+    with connect() as conn:
+        return repo.buscar_servicos(conn, q)
 
 
 @app.get("/servicos/{servico_id}")
@@ -113,6 +125,18 @@ def salvar_perimetro(servico_id: int, data: PerimetroIn):
 def salvar_camada(servico_id: int, categoria: str, data: CamadaIn):
     with connect() as conn:
         return {"servico_id": servico_id, **repo.put_camada(conn, servico_id, categoria, data.features)}
+
+
+@app.put("/servicos/{servico_id}/curvas")
+def salvar_curvas(servico_id: int, data: CurvasIn):
+    with connect() as conn:
+        return {"servico_id": servico_id, **repo.put_curvas(conn, servico_id, data)}
+
+
+@app.delete("/servicos/{servico_id}/curvas")
+def remover_curvas(servico_id: int):
+    with connect() as conn:
+        return repo.apagar_curvas(conn, servico_id)
 
 
 @app.post("/servicos/{servico_id}/offset")
@@ -153,6 +177,28 @@ def remover_perimetro(servico_id: int):
 
 
 # Interface na mesma origem da API: sem CORS, basta abrir http://127.0.0.1:8000/
+@app.get("/servicos/{servico_id}/exportar.gpkg")
+def exportar_gpkg(servico_id: int):
+    with connect() as conn:
+        camadas = repo.camadas_para_gpkg(conn, servico_id)
+    conteudo = gpkg_export.gerar(camadas)
+    return Response(
+        content=conteudo,
+        media_type="application/geopackage+sqlite3",
+        headers={"Content-Disposition": f'attachment; filename="servico-{servico_id}.gpkg"'},
+    )
+
+
+@app.post("/memorial.docx")
+def memorial_docx(data: MemorialDocxIn):
+    conteudo = docx_export.gerar_memorial(data.titulo, data.linhas, data.formato)
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="memorial.docx"'},
+    )
+
+
 @app.get("/", include_in_schema=False)
 def interface():
     return FileResponse(ROOT / "index.html")

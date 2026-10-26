@@ -63,6 +63,51 @@
         </div>
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Endereço do cliente</h3>
+          <p class="text-[11px] text-slate-400">Salvo no servidor. O CEP é padronizado para xxxxx-xxx e a UF para duas letras.</p>
+          <div class="grid grid-cols-3 gap-2 text-xs">
+            <label class="text-[10px] text-slate-400">CEP
+              <input data-end="cep" type="text" maxlength="9" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="col-span-2 text-[10px] text-slate-400">Logradouro
+              <input data-end="logradouro" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="text-[10px] text-slate-400">Número
+              <input data-end="numero" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="col-span-2 text-[10px] text-slate-400">Complemento
+              <input data-end="complemento" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="col-span-2 text-[10px] text-slate-400">Bairro
+              <input data-end="bairro" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="col-span-2 text-[10px] text-slate-400">Município
+              <input data-end="municipio" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="text-[10px] text-slate-400">UF
+              <input data-end="uf" type="text" maxlength="2" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs uppercase">
+            </label>
+          </div>
+          <button id="btnSalvarEndereco" type="button" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-600 py-1 px-2 rounded text-xs">Salvar endereço</button>
+          <p id="enderecoStatus" class="text-[11px] text-slate-400"></p>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Curvas de nível</h3>
+          <p class="text-[11px] text-slate-400">CSV de pontos cotados: colunas <code>lat,lon</code> ou <code>E,N</code> e uma coluna de altitude (<code>alt</code>, <code>altitude</code>, <code>z</code> ou <code>cota</code>).</p>
+          <label class="block text-[10px] text-slate-400">Equidistância (m)
+            <input id="cotaIntervalo" type="number" min="0.1" step="0.1" value="1" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+          </label>
+          <input id="cotaInput" type="file" accept=".csv"
+            class="block w-full text-xs text-slate-300 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500">
+          <div class="flex gap-2">
+            <button id="btnCurvasBaixar" type="button" class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 py-1 px-2 rounded text-xs">Baixar .geojson</button>
+            <button id="btnCurvasLimpar" type="button" class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 py-1 px-2 rounded text-xs">Remover curvas</button>
+          </div>
+          <p id="cotaResumo" class="text-[11px] text-slate-400"></p>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
           <h3 class="text-xs font-bold uppercase text-slate-300">Documentos do imóvel</h3>
           <div class="grid grid-cols-2 gap-2 text-xs">
             <label class="text-[10px] text-slate-400">Matrícula / CRI
@@ -178,6 +223,8 @@
         <div class="grid grid-cols-2 gap-2 text-xs">
           <button id="btnMemNotarial" type="button" class="bg-sky-600 hover:bg-sky-500 font-semibold py-2 px-2 rounded">Memorial notarial (texto corrido)</button>
           <button id="btnMemTabular" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Memorial tabular</button>
+          <button id="btnMemDocx" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Baixar memorial (.docx)</button>
+          <button id="btnGpkg" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Baixar base vetorial (.gpkg)</button>
           <button id="btnSigef" type="button" class="bg-emerald-600 hover:bg-emerald-500 font-semibold py-2 px-2 rounded">Planilha SIGEF (CSV)</button>
           <button id="btnDxf" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .DXF (UTM)</button>
           <button id="btnGeojson" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .GeoJSON</button>
@@ -242,6 +289,7 @@
   <script src="js/cad.js"></script>
   <script src="js/export.js"></script>
   <script src="js/memorial.js"></script>
+  <script src="js/contours.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

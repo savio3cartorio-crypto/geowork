@@ -33,7 +33,14 @@ CREATE TABLE clientes (
   nome        text        NOT NULL,
   cpf_cnpj    varchar(18) NOT NULL,
   email       text,
-  telefone    text
+  telefone    text,
+  cep         varchar(9),
+  logradouro  text,
+  numero      text,
+  complemento text,
+  bairro      text,
+  municipio   text,
+  uf          char(2)
 );
 
 CREATE TABLE servicos (
@@ -72,7 +79,7 @@ CREATE TABLE arquivos_dados (
 CREATE TABLE camadas_desenho (
   id           bigserial PRIMARY KEY,
   servico_id   bigint      NOT NULL REFERENCES servicos(id) ON DELETE CASCADE,
-  categoria    text        NOT NULL CHECK (categoria IN ('perimetro', 'rl', 'app', 'hidro', 'edificacao')),
+  categoria    text        NOT NULL CHECK (categoria IN ('perimetro', 'rl', 'app', 'hidro', 'edificacao', 'curvas')),
   ordem        integer     NOT NULL DEFAULT 0,
   geom         geometry(Geometry, 4674) NOT NULL,
   propriedades jsonb       NOT NULL DEFAULT '{}'::jsonb,

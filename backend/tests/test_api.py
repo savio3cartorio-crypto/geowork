@@ -5,7 +5,9 @@ Sem banco, o módulo é pulado. Rodar a partir da pasta backend/:
 """
 
 import base64
+import io
 import uuid
+import zipfile
 
 import pytest
 
@@ -138,7 +140,7 @@ def test_atualizar_dados_do_servico(client, servico):
     sid = servico["id"]
     r = client.put(
         f"/servicos/{sid}",
-        json={"matricula": "45.120", "codigo_car": "SP-3554102-XYZ", "codigo_sncr": "634.085.012.345-8", "modulo_fiscal_ha": 15.5},
+        json={"matricula": "45.120", "codigo_car": "sp-3554102-0123456789abcdef0123456789abcdef", "codigo_sncr": "634.085.012.345-8", "modulo_fiscal_ha": 15.5},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -197,3 +199,110 @@ def test_arquivo_recusa_nao_pdf(client, servico, tmp_path, monkeypatch):
     pdf = base64.b64encode(PDF_MINIMO).decode()
     assert client.post(url, json={"nome_arquivo": "x.txt", "conteudo_base64": pdf}).status_code == 422
     assert client.post(url, json={"nome_arquivo": "x.pdf", "conteudo_base64": "!!!"}).status_code == 422
+
+
+def test_codigo_car_fora_do_formato_recusado(client, servico):
+    url = f"/servicos/{servico['id']}"
+    ruim = client.put(url, json={"codigo_car": "SP-3554102-XYZ"})
+    assert ruim.status_code == 422
+    ok = client.put(url, json={"codigo_car": "sp-3554102-0123456789abcdef0123456789abcdef"})
+    assert ok.status_code == 200
+    assert ok.json()["codigo_car"] == "SP-3554102-0123456789ABCDEF0123456789ABCDEF"
+
+
+def test_busca_por_car_e_nome(client, servico):
+    car = "sp-3554102-fedcba9876543210fedcba9876543210"
+    client.put(f"/servicos/{servico['id']}", json={"codigo_car": car, "matricula": "M-98765"})
+    achados = client.get("/buscar", params={"q": "FEDCBA9876543210"}).json()
+    assert [a["id"] for a in achados] == [servico["id"]]
+    assert achados[0]["codigo_car"] == car.upper()
+    por_matricula = client.get("/buscar", params={"q": "M-98765"}).json()
+    assert any(a["id"] == servico["id"] for a in por_matricula)
+    assert client.get("/buscar", params={"q": "x"}).status_code == 422
+    assert client.get("/buscar", params={"q": "nao-existe-jamais-123"}).json() == []
+
+
+def test_memorial_docx_gera_arquivo_word(client):
+    corpo = {"titulo": "Memorial Teste", "formato": "corrido", "linhas": ["Inicia-se no vértice ABCD-M-0001.", "Confrontante: Fulano."]}
+    resposta = client.post("/memorial.docx", json=corpo)
+    assert resposta.status_code == 200
+    assert resposta.headers["content-type"].startswith("application/vnd.openxmlformats")
+    assert resposta.content[:2] == b"PK"  # .docx é um zip
+    with zipfile.ZipFile(io.BytesIO(resposta.content)) as z:
+        texto = z.read("word/document.xml").decode("utf-8")
+    assert "Inicia-se no vértice ABCD-M-0001." in texto
+
+
+def test_curvas_salvam_com_cota_e_podem_ser_removidas(client, servico):
+    url = f"/servicos/{servico['id']}"
+    corpo = {
+        "intervalo": 1,
+        "feicoes": [
+            {"cota": 500, "partes": [[[-45.529, -23.035], [-45.528, -23.034]]]},
+            {"cota": 501, "partes": [[[-45.527, -23.036], [-45.526, -23.037]], [[-45.525, -23.03], [-45.524, -23.031]]]},
+        ],
+    }
+    salvo = client.put(f"{url}/curvas", json=corpo)
+    assert salvo.status_code == 200
+    assert salvo.json()["feicoes"] == 2
+
+    camadas = [c for c in client.get(url).json()["camadas"] if c["categoria"] == "curvas"]
+    assert sorted(c["propriedades"]["cota"] for c in camadas) == [500, 501]
+    assert camadas[1]["geometry"]["type"] == "MultiLineString"
+    assert len(camadas[1]["geometry"]["coordinates"]) == 2
+
+    # uma parte com um único ponto não é uma linha: recusa e não apaga as curvas anteriores
+    ruim = {"intervalo": 1, "feicoes": [{"cota": 600, "partes": [[[-45.5, -23.0]]]}]}
+    assert client.put(f"{url}/curvas", json=ruim).status_code == 422
+    assert len([c for c in client.get(url).json()["camadas"] if c["categoria"] == "curvas"]) == 2
+
+    assert client.delete(f"{url}/curvas").status_code == 200
+    assert not [c for c in client.get(url).json()["camadas"] if c["categoria"] == "curvas"]
+
+
+def test_exportar_gpkg_tem_camadas_em_sirgas(client, servico, tmp_path):
+    pyogrio = pytest.importorskip("pyogrio")
+    url = f"/servicos/{servico['id']}"
+    client.put(f"{url}/perimetro", json={"ring": QUADRADO})
+    client.put(f"{url}/curvas", json={"intervalo": 1, "feicoes": [{"cota": 500, "partes": [[[-45.529, -23.035], [-45.528, -23.034]]]}]})
+
+    resposta = client.get(f"{url}/exportar.gpkg")
+    assert resposta.status_code == 200
+    assert resposta.headers["content-type"].startswith("application/geopackage")
+    assert resposta.content[:16] == b"SQLite format 3\x00"
+
+    arquivo = tmp_path / "base.gpkg"
+    arquivo.write_bytes(resposta.content)
+    nomes = {nome for nome, _ in pyogrio.list_layers(arquivo)}
+    assert {"perimetro", "vertices", "curvas"} <= nomes
+    info = pyogrio.read_info(arquivo, layer="perimetro")
+    assert info["crs"] == "EPSG:4674"
+    assert info["features"] == 1
+    assert pyogrio.read_info(arquivo, layer="vertices")["features"] == 4
+
+
+def test_endereco_do_cliente_e_padronizado(client):
+    corpo = {
+        "nome": "Endereco Teste", "cpf_cnpj": "000.000.000-00",
+        "cep": "01001000", "logradouro": "  Praça   da Sé ", "numero": "S/N", "uf": "sp",
+        "municipio": "São Paulo", "bairro": "Sé",
+    }
+    criado = client.post("/clientes", json=corpo)
+    assert criado.status_code == 201
+    cliente = criado.json()
+    assert cliente["cep"] == "01001-000"
+    assert cliente["uf"] == "SP"
+    assert cliente["logradouro"] == "Praça da Sé"
+
+    assert client.post("/clientes", json={**corpo, "cep": "0100-1"}).status_code == 422
+    assert client.post("/clientes", json={**corpo, "uf": "XX"}).status_code == 422
+
+    atualizado = client.put(f"/clientes/{cliente['id']}", json={**corpo, "numero": "100", "uf": "RJ"})
+    assert atualizado.status_code == 200
+    assert atualizado.json()["numero"] == "100"
+    assert atualizado.json()["uf"] == "RJ"
+    assert client.put("/clientes/999999999", json=corpo).status_code == 404
+
+    import psycopg
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("DELETE FROM clientes WHERE id = %s", (cliente["id"],))
