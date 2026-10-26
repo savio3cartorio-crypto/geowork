@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import consultas_publicas, docx_export, gpkg_export, identificar, mapa_google, repo, sicar_export
+from . import consultas_publicas, docx_export, gpkg_export, identificar, mapa_google, pacote, repo, sicar_export, schemas
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -179,11 +179,29 @@ def enviar_arquivo(servico_id: int, data: ArquivoIn):
         return repo.salvar_arquivo(conn, servico_id, data, settings.storage_dir)
 
 
+@api.put("/arquivos/{arquivo_id}")
+def mover_arquivo(arquivo_id: int, data: schemas.ArquivoUpdate):
+    with connect() as conn:
+        return repo.mover_arquivo(conn, arquivo_id, data.pasta)
+
+
 @api.get("/arquivos/{arquivo_id}")
 def baixar_arquivo(arquivo_id: int):
     with connect() as conn:
         nome, caminho = repo.caminho_arquivo(conn, arquivo_id, settings.storage_dir)
-    return FileResponse(caminho, media_type="application/pdf", filename=nome)
+    return FileResponse(caminho, filename=nome)
+
+
+# Projeto inteiro em um .zip: anexos em suas pastas, GeoPackage e pacote do SICAR gerados do desenho
+@api.get("/servicos/{servico_id}/pacote.zip")
+def baixar_pacote(servico_id: int):
+    with connect() as conn:
+        nome, conteudo = pacote.gerar(conn, servico_id, settings.storage_dir)
+    return Response(
+        content=conteudo,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @api.delete("/servicos/{servico_id}/perimetro")

@@ -290,6 +290,10 @@
 
   // Anexos PDF do serviço (ex.: demonstrativo do CAR); só existem no modo remoto
   let arquivos = [];
+  const PASTAS_ARQUIVO = {
+    plantas: 'Plantas', memoriais: 'Memoriais', planilhas: 'Planilhas',
+    imagens: 'Imagens', relatorios: 'Relatórios', documentos: 'Documentos',
+  };
 
   function renderArquivos() {
     const input = el('arquivoInput');
@@ -305,16 +309,43 @@
       lista.append(li);
       return;
     }
-    arquivos.forEach(a => {
-      const li = document.createElement('li');
-      const link = document.createElement('a');
-      link.href = `/arquivos/${a.id}`;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.className = 'text-sky-400 hover:underline';
-      link.textContent = a.nome_arquivo;
-      li.append(link, document.createTextNode(` · ${a.categoria}`));
-      lista.append(li);
+    // um bloco por pasta do projeto; cada anexo pode ser movido para outra pasta
+    Object.entries(PASTAS_ARQUIVO).forEach(([pasta, rotulo]) => {
+      const doGrupo = arquivos.filter(a => a.pasta === pasta);
+      if (!doGrupo.length) return;
+      const bloco = document.createElement('div');
+      const titulo = document.createElement('div');
+      titulo.className = 'font-semibold text-slate-400 text-[10px] uppercase';
+      titulo.textContent = `${rotulo} (${doGrupo.length})`;
+      const itens = document.createElement('ul');
+      itens.className = 'space-y-1';
+      doGrupo.forEach(a => {
+        const li = document.createElement('li');
+        li.className = 'flex flex-wrap items-center gap-1';
+        const link = document.createElement('a');
+        link.href = `/arquivos/${a.id}`;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'text-sky-400 hover:underline break-all';
+        link.textContent = a.nome_arquivo;
+        const mover = document.createElement('select');
+        mover.className = 'bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]';
+        mover.title = 'Mover para outra pasta';
+        Object.entries(PASTAS_ARQUIVO).forEach(([valor, nome]) => mover.add(new Option(nome, valor, false, valor === pasta)));
+        mover.addEventListener('change', async () => {
+          try {
+            await api(`/arquivos/${a.id}`, { method: 'PUT', body: { pasta: mover.value } });
+            await loadArquivos();
+            msg(`"${a.nome_arquivo}" movido para ${PASTAS_ARQUIVO[mover.value]}.`);
+          } catch (err) {
+            msg(`Erro ao mover: ${err.message}`, true);
+          }
+        });
+        li.append(link, document.createTextNode(` · ${a.categoria}`), mover);
+        itens.append(li);
+      });
+      bloco.append(titulo, itens);
+      lista.append(bloco);
     });
   }
 
@@ -1667,6 +1698,8 @@
   // Um shapefile por camada do CAR, cada um no seu .zip, para importar na etapa Geo do SICAR
   const baixarSicar = () =>
     baixarDoServidor('exportar-sicar.zip', s => `sicar-${s.id}-rev${pad2(s.rev)}.zip`, 'o pacote SICAR');
+  const baixarPacote = () =>
+    baixarDoServidor('pacote.zip', s => `projeto-${s.id}-rev${pad2(s.rev)}.zip`, 'o pacote do projeto');
 
   function gerarSigef() {
     const ctx = entregaContext();
@@ -2138,12 +2171,18 @@
     const s = svc();
     try {
       if (!file || !s || !s.remote || remote.mode !== 'api') return;
+      const pdf = file.name.toLowerCase().endsWith('.pdf');
       await api(`/servicos/${s.id}/arquivos`, {
         method: 'POST',
-        body: { nome_arquivo: file.name, categoria: 'recibo_car', conteudo_base64: await fileToBase64(file) },
+        body: {
+          nome_arquivo: file.name,
+          categoria: pdf ? 'recibo_car' : 'outro',
+          pasta: el('arquivoPasta').value,
+          conteudo_base64: await fileToBase64(file),
+        },
       });
       await loadArquivos();
-      msg('Demonstrativo anexado.');
+      msg(`"${file.name}" anexado em ${PASTAS_ARQUIVO[el('arquivoPasta').value]}.`);
     } catch (err) {
       msg(`Erro ao anexar: ${err.message}`, true);
     } finally {
@@ -2228,6 +2267,7 @@
   el('btnMemDocx').addEventListener('click', baixarMemorialDocx);
   el('btnGpkg').addEventListener('click', baixarGpkg);
   el('btnSicar').addEventListener('click', baixarSicar);
+  el('btnPacote').addEventListener('click', baixarPacote);
   el('btnSalvarEndereco').addEventListener('click', async () => {
     const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
     if (remote.mode !== 'api' || !c) return;

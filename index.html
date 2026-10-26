@@ -129,11 +129,21 @@
               <input data-doc="car" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono">
             </label>
           </div>
-          <label class="block text-[10px] text-slate-400">Demonstrativo do CAR (PDF do SICAR)
-            <input id="arquivoInput" type="file" accept="application/pdf"
+          <label class="block text-[10px] text-slate-400">Pasta do anexo
+            <select id="arquivoPasta" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+              <option value="plantas">Plantas</option>
+              <option value="memoriais">Memoriais</option>
+              <option value="planilhas">Planilhas</option>
+              <option value="imagens">Imagens</option>
+              <option value="relatorios">Relatórios</option>
+              <option value="documentos" selected>Documentos (inclui o PDF do SICAR)</option>
+            </select>
+          </label>
+          <label class="block text-[10px] text-slate-400">Anexar arquivo (PDF, DXF, DOCX, XLSX, JPG ou PNG)
+            <input id="arquivoInput" type="file" accept=".pdf,.dxf,.docx,.xlsx,.jpg,.jpeg,.png"
               class="mt-0.5 block w-full text-xs text-slate-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500">
           </label>
-          <ul id="arquivoList" class="text-[11px] text-slate-300 space-y-1"></ul>
+          <div id="arquivoList" class="text-[11px] text-slate-300 space-y-2"></div>
         </div>
 
         <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
@@ -304,6 +314,7 @@
           <button id="btnMemDocx" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Baixar memorial (.docx)</button>
           <button id="btnGpkg" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Baixar base vetorial (.gpkg)</button>
           <button id="btnSicar" type="button" class="bg-emerald-700 hover:bg-emerald-600 font-semibold py-2 px-2 rounded" title="Um shapefile por camada do CAR (SIRGAS 2000), com LEIA-ME de importação">Pacote SICAR (shapefiles)</button>
+          <button id="btnPacote" type="button" class="bg-sky-700 hover:bg-sky-600 font-semibold py-2 px-2 rounded" title="Um .zip com os anexos em suas pastas, o GeoPackage e o pacote do SICAR">Pacote do projeto (.zip)</button>
           <button id="btnSigef" type="button" class="bg-emerald-600 hover:bg-emerald-500 font-semibold py-2 px-2 rounded">Planilha SIGEF (CSV)</button>
           <button id="btnDxf" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .DXF (UTM)</button>
           <button id="btnGeojson" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .GeoJSON</button>

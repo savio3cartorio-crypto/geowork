@@ -164,12 +164,20 @@ class ServicoUpdate(BaseModel):
 CategoriaArquivo = Literal["recibo_car", "matricula", "ccir", "itr_cib", "certidao", "insumo", "outro"]
 
 
+PastaArquivo = Literal["plantas", "memoriais", "planilhas", "imagens", "relatorios", "documentos"]
+
+
 class ArquivoIn(BaseModel):
-    """Upload de um PDF do serviço, enviado em base64 dentro do JSON (sem multipart)."""
+    """Upload de um anexo do projeto (PDF, DXF, DOCX, XLSX, JPG ou PNG), enviado em base64 dentro do JSON."""
 
     nome_arquivo: str = Field(min_length=1, max_length=200)
     categoria: CategoriaArquivo = "recibo_car"
-    conteudo_base64: str = Field(min_length=1, description="conteúdo do PDF em base64")
+    pasta: PastaArquivo = "documentos"
+    conteudo_base64: str = Field(min_length=1, description="conteúdo do arquivo em base64")
+
+
+class ArquivoUpdate(BaseModel):
+    pasta: PastaArquivo
 
 
 class MemorialDocxIn(BaseModel):

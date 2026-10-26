@@ -518,36 +518,52 @@ def delete_perimetro(conn: Connection, servico_id: int) -> dict:
     return {"servico_id": servico_id, "perimetro": "removido"}
 
 
-# ---------- arquivos do serviço (PDFs: demonstrativo do CAR, matrícula...) ----------
+# ---------- arquivos do projeto (PDF, DXF, DOCX, XLSX, JPG, PNG), cada um numa pasta ----------
 
-LIMITE_ARQUIVO_BYTES = 10 * 1024 * 1024
+LIMITE_ARQUIVO_BYTES = 25 * 1024 * 1024
+TIPOS_ARQUIVO = {".pdf": "PDF", ".dxf": "DXF", ".docx": "DOCX", ".xlsx": "XLSX",
+                 ".jpg": "JPG", ".jpeg": "JPG", ".png": "PNG"}
+
+
+def _confere_conteudo(extensao: str, conteudo: bytes) -> None:
+    """O conteúdo tem de bater com a extensão: não basta o nome do arquivo."""
+    assinatura = {
+        ".pdf": (b"%PDF",), ".png": (b"\x89PNG",), ".jpg": (b"\xff\xd8\xff",), ".jpeg": (b"\xff\xd8\xff",),
+        ".docx": (b"PK\x03\x04",), ".xlsx": (b"PK\x03\x04",),
+    }
+    if extensao == ".dxf":
+        ok = b"SECTION" in conteudo[:4096]
+    else:
+        ok = conteudo.startswith(assinatura[extensao])
+    if not ok:
+        raise ValueError(f"o conteúdo não é um arquivo {extensao[1:].upper()}")
 
 
 def salvar_arquivo(conn: Connection, servico_id: int, data: ArquivoIn, storage_dir: Path) -> dict:
     _require_servico(conn, servico_id)
-    if not data.nome_arquivo.lower().endswith(".pdf"):
-        raise ValueError("apenas arquivos PDF são aceitos")
+    extensao = Path(data.nome_arquivo).suffix.lower()
+    if extensao not in TIPOS_ARQUIVO:
+        raise ValueError("tipo de arquivo não aceito: use PDF, DXF, DOCX, XLSX, JPG ou PNG")
     try:
         conteudo = base64.b64decode(data.conteudo_base64, validate=True)
     except binascii.Error as exc:
         raise ValueError("conteúdo do arquivo não está em base64 válido") from exc
-    if not conteudo.startswith(b"%PDF"):
-        raise ValueError("o conteúdo não é um PDF")
+    _confere_conteudo(extensao, conteudo)
     if len(conteudo) > LIMITE_ARQUIVO_BYTES:
-        raise ValueError("arquivo maior que 10 MB")
+        raise ValueError("arquivo maior que 25 MB")
 
-    relativo = f"{servico_id}/{uuid.uuid4().hex}.pdf"
+    relativo = f"{servico_id}/{uuid.uuid4().hex}{extensao}"
     destino = storage_dir / relativo
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_bytes(conteudo)
 
     return conn.execute(
         """
-        INSERT INTO arquivos_dados (servico_id, nome_arquivo, tipo, categoria, caminho)
-        VALUES (%s, %s, 'PDF', %s, %s)
-        RETURNING id, nome_arquivo, categoria, enviado_em
+        INSERT INTO arquivos_dados (servico_id, nome_arquivo, tipo, categoria, pasta, caminho)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id, nome_arquivo, tipo, categoria, pasta, enviado_em
         """,
-        (servico_id, data.nome_arquivo, data.categoria, relativo),
+        (servico_id, data.nome_arquivo, TIPOS_ARQUIVO[extensao], data.categoria, data.pasta, relativo),
     ).fetchone()
 
 
@@ -555,11 +571,21 @@ def listar_arquivos(conn: Connection, servico_id: int) -> list[dict]:
     _require_servico(conn, servico_id)
     return conn.execute(
         """
-        SELECT id, nome_arquivo, categoria, enviado_em
+        SELECT id, nome_arquivo, tipo, categoria, pasta, enviado_em
         FROM arquivos_dados WHERE servico_id = %s ORDER BY enviado_em, id
         """,
         (servico_id,),
     ).fetchall()
+
+
+def mover_arquivo(conn: Connection, arquivo_id: int, pasta: str) -> dict:
+    row = conn.execute(
+        "UPDATE arquivos_dados SET pasta = %s WHERE id = %s RETURNING id, nome_arquivo, tipo, categoria, pasta, enviado_em",
+        (pasta, arquivo_id),
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"arquivo {arquivo_id} não encontrado")
+    return row
 
 
 def caminho_arquivo(conn: Connection, arquivo_id: int, storage_dir: Path) -> tuple[str, Path]:

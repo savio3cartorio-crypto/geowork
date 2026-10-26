@@ -745,3 +745,56 @@ def test_identificar_nao_le_responsavel_tecnico_do_sigef():
     for camada in ("sigef", "sigef_publico", "sigef_sp_2024"):
         campos = {campo for campo, *_ in identificar.CAMADAS[camada][3]}
         assert not campos & {"rt", "art"}, camada
+
+
+def _anexo(client, servico_id, nome, conteudo, pasta="documentos"):
+    return client.post(f"/servicos/{servico_id}/arquivos", json={
+        "nome_arquivo": nome, "pasta": pasta, "conteudo_base64": base64.b64encode(conteudo).decode(),
+    })
+
+
+def test_anexos_de_projeto_tipos_e_pastas(client, servico, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    sid = servico["id"]
+    dxf = b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    planta = _anexo(client, sid, "planta-geral.dxf", dxf, pasta="plantas")
+    assert planta.status_code == 201, planta.text
+    assert planta.json()["tipo"] == "DXF" and planta.json()["pasta"] == "plantas"
+    foto = _anexo(client, sid, "vista.png", png, pasta="imagens")
+    assert foto.status_code == 201 and foto.json()["tipo"] == "PNG"
+
+    # o conteúdo precisa bater com a extensão
+    assert _anexo(client, sid, "falso.png", b"texto qualquer").status_code == 422
+    assert _anexo(client, sid, "planilha.xlsx", b"%PDF-1.4").status_code == 422
+    assert _anexo(client, sid, "x.exe", b"MZ").status_code == 422
+    assert _anexo(client, sid, "ok.pdf", PDF_MINIMO, pasta="pasta-inventada").status_code == 422
+
+    movido = client.put(f"/arquivos/{planta.json()['id']}", json={"pasta": "memoriais"})
+    assert movido.status_code == 200 and movido.json()["pasta"] == "memoriais"
+    assert client.put(f"/arquivos/{planta.json()['id']}", json={"pasta": "nenhuma"}).status_code == 422
+
+    baixado = client.get(f"/arquivos/{foto.json()['id']}")
+    assert baixado.headers["content-type"] == "image/png"
+
+
+def test_pacote_do_projeto_organiza_anexos_por_pasta(client, servico, tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    sid = servico["id"]
+    _anexo(client, sid, "memorial.pdf", PDF_MINIMO, pasta="memoriais")
+    _anexo(client, sid, "memorial.pdf", PDF_MINIMO, pasta="memoriais")  # mesmo nome: não se perde
+    _anexo(client, sid, "matricula.pdf", PDF_MINIMO)
+
+    resposta = client.get(f"/servicos/{sid}/pacote.zip")
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(resposta.content)) as z:
+        nomes = z.namelist()
+        assert "memoriais/memorial.pdf" in nomes and "memoriais/memorial (2).pdf" in nomes
+        assert "documentos/matricula.pdf" in nomes
+        leia = z.read("LEIA-ME.txt").decode("utf-8")
+    assert "memoriais/ (Memoriais, 2 arquivo(s))" in leia
+    assert "Ainda não incluído" in leia

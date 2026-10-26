@@ -78,8 +78,9 @@ CREATE TABLE arquivos_dados (
   id            bigserial PRIMARY KEY,
   servico_id    bigint      NOT NULL REFERENCES servicos(id) ON DELETE CASCADE,
   nome_arquivo  text        NOT NULL,
-  tipo          text        NOT NULL CHECK (tipo IN ('CSV', 'TXT', 'GPX', 'KML', 'KMZ', 'SHP', 'DXF', 'PDF', 'OUTRO')),
+  tipo          text        NOT NULL CHECK (tipo IN ('CSV', 'TXT', 'GPX', 'KML', 'KMZ', 'SHP', 'DXF', 'PDF', 'DOCX', 'XLSX', 'JPG', 'PNG', 'OUTRO')),
   categoria     text        CHECK (categoria IN ('insumo', 'matricula', 'ccir', 'itr_cib', 'recibo_car', 'certidao', 'outro')),
+  pasta         text        NOT NULL DEFAULT 'documentos' CHECK (pasta IN ('plantas', 'memoriais', 'planilhas', 'imagens', 'relatorios', 'documentos')),
   caminho       text        NOT NULL,   -- caminho no storage; o binário não fica no banco
   enviado_em    timestamptz NOT NULL DEFAULT now()
 );
@@ -209,4 +210,5 @@ INSERT INTO schema_migracoes (arquivo) VALUES
   ('004_usuarios_e_sessoes.sql'),
   ('005_camadas_car.sql'),
   ('006_servico_unico_por_cliente.sql'),
-  ('007_acompanhamento_car.sql');
+  ('007_acompanhamento_car.sql'),
+  ('008_pastas_do_projeto.sql');
