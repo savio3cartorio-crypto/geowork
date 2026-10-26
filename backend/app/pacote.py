@@ -75,10 +75,11 @@ def gerar(conn: Connection, servico_id: int, storage_dir: Path) -> tuple[str, by
         if dados:
             leia += ["  dados/ (gerado do desenho salvo)", *dados]
 
-        leia += [
-            "",
-            "Ainda não incluído neste pacote: o memorial descritivo e a planilha de vértices,",
-            "que são gerados na tela do GeoWork. Baixe-os na aba de entregas e anexe aqui.",
-        ]
+        if not any(a["pasta"] == "memoriais" for a in anexos):
+            leia += [
+                "",
+                "Sem memorial descritivo no projeto. Gere-o na aba 4 (ENTREGAS), em",
+                "'Georreferenciamento completo', e baixe o pacote de novo.",
+            ]
         pacote.writestr("LEIA-ME.txt", "\r\n".join(leia) + "\r\n")
     return f"projeto-{servico_id}.zip", saida.getvalue()

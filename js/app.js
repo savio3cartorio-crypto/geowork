@@ -1626,16 +1626,20 @@
 
   let memFormat = 'corrido';
 
-  function gerarMemorial(format) {
-    const ctx = entregaContext();
-    if (!ctx) return;
+  function textoMemorial(ctx, format) {
     const { s, pm } = ctx;
-    memFormat = format;
-    el('output').value = Memorial.build(s.name, pm.summary, {
+    return Memorial.build(s.name, pm.summary, {
       format,
       codes: pm.open.map((_, i) => codeOf(s, i)),
       confrontantes: pm.segments.map((_, i) => (s.meta.segs[i] && s.meta.segs[i].nome) || '[a informar]'),
     });
+  }
+
+  function gerarMemorial(format) {
+    const ctx = entregaContext();
+    if (!ctx) return;
+    memFormat = format;
+    el('output').value = textoMemorial(ctx, format);
     msg(`Memorial ${format === 'corrido' ? 'em texto corrido' : 'tabular'} gerado.`);
   }
 
@@ -1699,9 +1703,7 @@
   const baixarPacote = () =>
     baixarDoServidor('pacote.zip', s => `projeto-${s.id}-rev${pad2(s.rev)}.zip`, 'o pacote do projeto');
 
-  function gerarSigef() {
-    const ctx = entregaContext();
-    if (!ctx) return;
+  function textoSigef(ctx) {
     const { s, pm } = ctx;
     const vertices = pm.open.map(([lng, lat], i) => {
       const [E, N] = Geo.toUtmPoint(lng, lat, pm.summary.zone);
@@ -1718,7 +1720,7 @@
         distancia: seg ? seg.distanceM : '',
       };
     });
-    el('output').value = Exporter.sigefCsv({
+    return Exporter.sigefCsv({
       identificacao: {
         'Nome do imóvel': s.name,
         Matrícula: s.docs.matricula,
@@ -1730,12 +1732,16 @@
       },
       vertices,
     });
+  }
+
+  function gerarSigef() {
+    const ctx = entregaContext();
+    if (!ctx) return;
+    el('output').value = textoSigef(ctx);
     msg('Planilha SIGEF gerada em CSV (não é ODS).');
   }
 
-  function gerarDxf() {
-    const ctx = entregaContext();
-    if (!ctx) return;
+  function textoDxf(ctx) {
     const { s, pm } = ctx;
     const zone = pm.summary.zone;
     // Todas as feições saem na zona do perímetro
@@ -1747,7 +1753,62 @@
         features.push({ layer: dxf, points: closed ? pts.slice(0, -1) : pts, closed, point: !!point });
       })
     );
-    download(`${slug(s.name)}_utm${zone}s.dxf`, Exporter.toDxf(features), 'application/dxf');
+    return Exporter.toDxf(features);
+  }
+
+  function gerarDxf() {
+    const ctx = entregaContext();
+    if (!ctx) return;
+    const { s, pm } = ctx;
+    download(`${slug(s.name)}_utm${pm.summary.zone}s.dxf`, textoDxf(ctx), 'application/dxf');
+  }
+
+  // Georreferenciamento completo: planilha SIGEF, planta (DXF) e memorial tabular (.docx) numa ação.
+  // Cada um vai para a sua pasta do projeto (Planilhas, Plantas, Memoriais) e a conferência é refeita.
+  async function gerarGeorreferenciamento() {
+    const ctx = entregaContext();
+    if (!ctx) return;
+    const { s, pm } = ctx;
+    if (remote.mode !== 'api' || !s.remote) return msg('O georreferenciamento completo precisa do servidor e de um serviço salvo.', true);
+    const base = `${slug(s.name)}-rev${pad2(s.rev)}`;
+    const memorial = textoMemorial(ctx, 'tabular');
+    const [titulo, ...resto] = memorial.trim().split('\n');
+    try {
+      await flushSync();
+      const resDocx = await fetch('/memorial.docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titulo: titulo.trim().slice(0, 200) || 'Memorial descritivo', formato: 'tabular', linhas: resto.length ? resto : [''] }),
+      });
+      if (!resDocx.ok) throw new Error(`memorial: HTTP ${resDocx.status}`);
+      const docx = await resDocx.blob();
+      const planilha = new Blob([textoSigef(ctx)], { type: 'text/csv' });
+      const planta = new Blob([textoDxf(ctx)], { type: 'application/dxf' });
+      const itens = [
+        [`planilha-sigef-${base}.csv`, 'planilhas', planilha, 'Planilha SIGEF'],
+        [`planta-utm${pm.summary.zone}s-${base}.dxf`, 'plantas', planta, 'Planta (DXF)'],
+        [`memorial-tabular-${base}.docx`, 'memoriais', docx, 'Memorial (.docx)'],
+      ];
+      for (const [nome, pasta, arquivo] of itens) {
+        await api(`/servicos/${s.id}/arquivos`, {
+          method: 'POST',
+          body: { nome_arquivo: nome, categoria: 'outro', pasta, conteudo_base64: await fileToBase64(arquivo) },
+        });
+      }
+      await loadArquivos();
+      itens.forEach(([nome, , arquivo]) => {
+        const url = URL.createObjectURL(arquivo);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = nome;
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+      msg('Georreferenciamento gerado: planilha, planta e memorial guardados no projeto. Confira a lista de conferência.');
+      await conferirProjeto();
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro no georreferenciamento: ${err.message}`, true);
+    }
   }
 
   function gerarGeojson() {
@@ -2381,6 +2442,7 @@
     }
   }
   el('btnConferir').addEventListener('click', conferirProjeto);
+  el('btnGeorref').addEventListener('click', gerarGeorreferenciamento);
   el('btnSalvarEndereco').addEventListener('click', async () => {
     const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
     if (remote.mode !== 'api' || !c) return;

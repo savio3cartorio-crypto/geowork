@@ -797,7 +797,7 @@ def test_pacote_do_projeto_organiza_anexos_por_pasta(client, servico, tmp_path, 
         assert "documentos/matricula.pdf" in nomes
         leia = z.read("LEIA-ME.txt").decode("utf-8")
     assert "memoriais/ (Memoriais, 2 arquivo(s))" in leia
-    assert "Ainda não incluído" in leia
+    assert "Sem memorial descritivo" not in leia  # há memorial no projeto
 
 
 def test_conferencia_do_projeto_responde_itens(client, servico, tmp_path, monkeypatch):
@@ -819,3 +819,13 @@ def test_relatorio_em_csv_e_txt_so_aceita_texto(client, servico, tmp_path, monke
     assert _anexo(client, sid, "pre-analise-car.txt", "✓ Sede marcada.".encode("utf-8"),
                   pasta="relatorios").json()["tipo"] == "TXT"
     assert _anexo(client, sid, "binario.txt", b"\xff\xfe\x00\x01").status_code == 422
+
+
+def test_pacote_avisa_quando_falta_memorial(client, servico, tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    _anexo(client, servico["id"], "matricula.pdf", PDF_MINIMO)
+    with zipfile.ZipFile(io.BytesIO(client.get(f"/servicos/{servico['id']}/pacote.zip").content)) as z:
+        assert "Sem memorial descritivo" in z.read("LEIA-ME.txt").decode("utf-8")
