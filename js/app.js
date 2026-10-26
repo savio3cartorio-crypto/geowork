@@ -205,7 +205,7 @@
 
   // Envia ao servidor o estado completo de um serviço: perímetro, camadas e dados cadastrais
   async function pushService(s) {
-    const ring = s.layers.perimetro[0];
+    const [ring] = paraDuasDimensoes(s.layers.perimetro);
     if (ring) {
       const open = ring.slice(0, -1);
       await api(`/servicos/${s.id}/perimetro`, {
@@ -242,7 +242,7 @@
     } else {
       await api(`/servicos/${s.id}/perimetro`, { method: 'DELETE' });
     }
-    const camadas = Object.fromEntries(CAMADAS_DESENHO.map(cat => [cat, s.layers[cat]]));
+    const camadas = Object.fromEntries(CAMADAS_DESENHO.map(cat => [cat, paraDuasDimensoes(s.layers[cat])]));
     await api(`/servicos/${s.id}/camadas`, { method: 'PUT', body: { camadas } });
     await api(`/servicos/${s.id}`, {
       method: 'PUT',
@@ -841,6 +841,11 @@
     properties: {},
     geometry: { type: 'Polygon', coordinates: [ring] },
   });
+
+  // O servidor aceita só [lng, lat]: arquivos com altitude (KML, GeoJSON 3D) trazem um terceiro valor
+  function paraDuasDimensoes(rings) {
+    return rings.map(r => r.map(([x, y]) => [x, y]));
+  }
 
   const closeRing = ring => {
     const first = ring[0];
@@ -1458,16 +1463,17 @@
     if (rings.some(r => r.some(([x, y]) => Math.abs(x) > 180 || Math.abs(y) > 90))) {
       throw new Error('coordenadas fora de graus (parecem UTM). Reprojete para SIRGAS 2000 geográfico (EPSG:4674).');
     }
+    const planos = paraDuasDimensoes(rings);
 
     if (cat === 'perimetro') {
-      s.layers.perimetro = [closeRing(rings[0])];
+      s.layers.perimetro = [closeRing(planos[0])];
       s.meta = { codes: [], vertex: [], segs: [] };
       if (rings.length > 1) msg(`Só o primeiro polígono de "${fileName}" foi usado no perímetro.`);
     } else if (info.point) {
-      s.layers[cat] = [rings[0]];
+      s.layers[cat] = [planos[0]];
       msg(`${info.label} importada de "${fileName}"${rings.length > 1 ? ' (só o primeiro ponto foi usado)' : ''}.`);
     } else {
-      s.layers[cat].push(...rings.map(r => (info.closed ? closeRing(r) : r)));
+      s.layers[cat].push(...planos.map(r => (info.closed ? closeRing(r) : r)));
       msg(`${rings.length} feição(ões) importada(s) de "${fileName}" para ${info.label}.`);
     }
     commitChanges();
