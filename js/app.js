@@ -2012,6 +2012,8 @@
   function conteudoIdentificacao(dados) {
     const caixa = document.createElement('div');
     caixa.className = 'text-[11px] space-y-2';
+    // o botão "Usar" some ao ser clicado; sem isto o Leaflet trataria o clique como clique no mapa
+    L.DomEvent.disableClickPropagation(caixa);
     let total = 0;
     dados.camadas.forEach(c => {
       const bloco = document.createElement('div');
