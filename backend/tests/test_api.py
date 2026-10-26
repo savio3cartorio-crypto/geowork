@@ -659,3 +659,38 @@ def test_ladrilho_sicar_valida_e_guarda_em_cache(client, monkeypatch, tmp_path):
     assert len(pedidos) == 1  # a segunda veio do cache
     assert client.get("/camadas/sicar.png?layers=outra:camada&bbox=1,2,3,4").status_code == 422
     assert client.get("/camadas/sicar.png?layers=sicar:sicar_imoveis_sp&bbox=1,2,3").status_code == 422
+
+
+def test_mapa_google_sem_chave_e_com_chave(client, monkeypatch):
+    from app import mapa_google
+    from app.config import settings as cfg
+
+    monkeypatch.setattr(cfg, "google_maps_key", None)
+    assert client.get("/mapa/google").status_code == 404
+    assert client.get("/mapa/google/ativo").json() == {"ativo": False}
+
+    chamadas = []
+
+    class Resp:
+        def __init__(self, corpo):
+            self.status_code, self._corpo = 200, corpo
+
+        def json(self):
+            return self._corpo
+
+    def post(url, params, json, timeout):
+        chamadas.append(json)
+        return Resp({"session": "S1", "expiry": str(int(__import__("time").time()) + 14 * 86400), "tileWidth": 256})
+
+    def get(url, params, timeout):
+        return Resp({"copyright": "Imagens ©2026 Airbus, Maxar", "maxZoom": 21})
+
+    monkeypatch.setattr(mapa_google.httpx, "post", post)
+    monkeypatch.setattr(mapa_google.httpx, "get", get)
+    monkeypatch.setattr(mapa_google, "_sessao", {})
+    monkeypatch.setattr(cfg, "google_maps_key", "chave-teste")
+    assert client.get("/mapa/google").json() == {"session": "S1", "key": "chave-teste", "tileSize": 256}
+    client.get("/mapa/google")
+    assert len(chamadas) == 1 and chamadas[0]["layerTypes"] == ["layerRoadmap"]  # sessão reaproveitada
+    att = client.get("/mapa/google/atribuicao?zoom=15&norte=-23&sul=-23.1&leste=-45.4&oeste=-45.6").json()
+    assert att["copyright"].startswith("Imagens")

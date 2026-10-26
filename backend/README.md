@@ -115,6 +115,20 @@ Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).
 - Não há cálculo de sobreposição com o SIGEF (depende da camada oficial).
 - A conexão é aberta por requisição, sem pool. Adequado ao protótipo.
 
+## Mapa do Google (opcional)
+
+O mapa base padrão é o **Híbrido** da Esri (satélite com vias e nomes). O botão **Google** (satélite híbrido do
+Google) só aparece quando o servidor tem uma chave da **Map Tiles API**, o serviço oficial de ladrilhos do Google.
+Puxar ladrilhos direto de `mt*.google.com` não é permitido pelos termos do Google Maps.
+
+1. No Google Cloud, num projeto com faturamento ativo, ative a **Map Tiles API** e crie uma chave de API.
+2. Restrinja a chave: *Restrições de aplicativo* → sites → `https://geowork.savioescrevente.com/*`;
+   *Restrições de API* → só Map Tiles API. A chave vai na URL dos ladrilhos, então a restrição é obrigatória.
+3. No servidor: acrescente `GEOWORK_GOOGLE_MAPS_KEY=<chave>` em `/etc/geowork/env` e rode
+   `systemctl restart geowork`.
+
+O GeoWork mostra o logotipo do Google e a atribuição da área visível, como os termos exigem.
+
 ## Login
 
 Todas as rotas de dados exigem sessão; sem ela respondem `401`. A página principal redireciona para `/login`.

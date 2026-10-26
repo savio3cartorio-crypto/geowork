@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import consultas_publicas, docx_export, gpkg_export, repo, sicar_export
+from . import consultas_publicas, docx_export, gpkg_export, mapa_google, repo, sicar_export
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -242,6 +242,37 @@ def sobreposicoes(servico_id: int):
     with connect() as conn:
         servico = repo.get_servico(conn, servico_id)
         return consultas_publicas.consultar(conn, servico)
+
+
+# Mapa híbrido do Google (Map Tiles API): sessão de ladrilhos e atribuição da área visível
+def _chave_google() -> str:
+    if not settings.google_maps_key:
+        raise HTTPException(status_code=404, detail="mapa do Google não configurado (GEOWORK_GOOGLE_MAPS_KEY)")
+    return settings.google_maps_key
+
+
+@api.get("/mapa/google/ativo")
+def mapa_google_ativo():
+    return {"ativo": bool(settings.google_maps_key)}
+
+
+@api.get("/mapa/google")
+def mapa_google_sessao():
+    try:
+        return mapa_google.sessao(_chave_google())
+    except ConnectionError as erro:
+        raise HTTPException(status_code=502, detail=str(erro)) from None
+
+
+@api.get("/mapa/google/atribuicao")
+def mapa_google_atribuicao(
+    zoom: int = Query(ge=0, le=22), norte: float = Query(ge=-90, le=90), sul: float = Query(ge=-90, le=90),
+    leste: float = Query(ge=-180, le=180), oeste: float = Query(ge=-180, le=180),
+):
+    try:
+        return mapa_google.atribuicao(_chave_google(), zoom, norte, sul, leste, oeste)
+    except ConnectionError as erro:
+        raise HTTPException(status_code=502, detail=str(erro)) from None
 
 
 # Ladrilhos do SICAR repassados com cache (o servidor do CAR é instável para pedidos diretos do navegador)

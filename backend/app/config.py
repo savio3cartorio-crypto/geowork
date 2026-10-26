@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # Sessão de login: validade em horas e cookie só por HTTPS (desligar apenas em testes locais sem HTTPS)
     sessao_horas: int = 8
     cookie_seguro: bool = True
+    # Chave da Google Map Tiles API para o mapa híbrido do Google; sem ela, o botão Google não aparece
+    google_maps_key: str | None = None
 
     model_config = SettingsConfigDict(env_prefix="GEOWORK_")
 

@@ -688,11 +688,22 @@
   const map = L.map('map', { center: [-23.045, -45.525], zoom: 15 });
   const mapGroup = L.layerGroup().addTo(map);
 
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+  const esriImagem = () => L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
+    maxZoom: 19,
+    attribution: 'Imagens &copy; Esri',
+  });
   const baseLayers = {
-    sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19,
-      attribution: 'Imagens &copy; Esri',
-    }),
+    sat: esriImagem(),
+    // Híbrido: a mesma imagem com as camadas de referência da Esri (vias e nomes de lugares) por cima
+    hib: L.layerGroup([
+      esriImagem(),
+      L.tileLayer(`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, {
+        maxZoom: 19,
+        attribution: 'Vias e nomes &copy; Esri',
+      }),
+      L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 19 }),
+    ]),
     osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap',
@@ -702,7 +713,62 @@
   // Camadas públicas oficiais (js/camadas-publicas.js), criadas só quando ligadas
   const camadasPublicas = {};
 
-  function setBaseMode(mode) {
+  // Google híbrido pela Map Tiles API: só aparece quando o servidor tem a chave (GEOWORK_GOOGLE_MAPS_KEY).
+  // Os termos do Google pedem o logotipo no mapa e a atribuição da área visível, atualizada a cada movimento.
+  const google = { camada: null, logo: null, atribuicao: '', espera: null };
+
+  async function ativarGoogle() {
+    if (!google.camada) {
+      const s = await api('/mapa/google');
+      google.camada = L.tileLayer(
+        `https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${encodeURIComponent(s.session)}&key=${encodeURIComponent(s.key)}`,
+        { maxZoom: 22, tileSize: s.tileSize || 256 }
+      );
+      google.logo = L.control({ position: 'bottomleft' });
+      google.logo.onAdd = () => {
+        const img = L.DomUtil.create('img');
+        img.src = 'https://maps.gstatic.com/mapfiles/api-3/images/google_white5.png';
+        img.alt = 'Google';
+        img.style.height = '18px';
+        return img;
+      };
+    }
+    baseLayers.google = google.camada;
+    google.logo.addTo(map);
+    atualizarAtribuicaoGoogle();
+  }
+
+  function atualizarAtribuicaoGoogle() {
+    clearTimeout(google.espera);
+    google.espera = setTimeout(async () => {
+      if (ui.mapMode !== 'google') return;
+      const b = map.getBounds();
+      try {
+        const q = new URLSearchParams({ zoom: map.getZoom(), norte: b.getNorth(), sul: b.getSouth(), leste: b.getEast(), oeste: b.getWest() });
+        const r = await api(`/mapa/google/atribuicao?${q}`);
+        if (google.atribuicao) map.attributionControl.removeAttribution(google.atribuicao);
+        google.atribuicao = `Google${r.copyright ? ' · ' + r.copyright : ''}`;
+        map.attributionControl.addAttribution(google.atribuicao);
+      } catch (err) {
+        if (!err.sessaoEncerrada) console.error('Atribuição do Google:', err);
+      }
+    }, 400);
+  }
+  map.on('moveend', atualizarAtribuicaoGoogle);
+
+  async function setBaseMode(mode) {
+    if (mode === 'google') {
+      try {
+        await ativarGoogle();
+      } catch (err) {
+        if (!err.sessaoEncerrada) msg(`Mapa do Google indisponível: ${err.message}`, true);
+        return;
+      }
+    } else if (google.logo) {
+      google.logo.remove();
+      if (google.atribuicao) map.attributionControl.removeAttribution(google.atribuicao);
+      google.atribuicao = '';
+    }
     Object.values(baseLayers).forEach(layer => map.removeLayer(layer));
     if (mode !== 'cad') baseLayers[mode].addTo(map);
     el('map').classList.toggle('cad-mode', mode === 'cad');
@@ -2150,7 +2216,17 @@
     await loadArquivos();
     await loadAcompanhamento();
     await loadPrazos();
-    setBaseMode('sat');
+    let baseInicial = 'hib'; // satélite com vias e nomes; o Google, quando configurado
+    try {
+      // botão Google só com a chave configurada no servidor
+      if (remote.mode === 'api' && (await api('/mapa/google/ativo')).ativo) {
+        document.querySelector('[data-mode=google]').classList.remove('hidden');
+        baseInicial = 'google';
+      }
+    } catch (err) {
+      // sem a rota (servidor antigo): segue sem o Google
+    }
+    await setBaseMode(baseInicial);
     switchPillar('limites');
     refresh();
     fitPerimeter();
