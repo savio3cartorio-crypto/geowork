@@ -15,7 +15,10 @@ from .auth import (
 )
 from .config import settings
 from .db import connect
-from .schemas import ArquivoIn, CamadaIn, CamadasIn, ClienteIn, CurvasIn, LoginIn, MemorialDocxIn, OffsetIn, PerimetroIn, ServicoIn, ServicoUpdate
+from .schemas import (
+    ArquivoIn, CamadaIn, CamadasIn, ClienteIn, CurvasIn, LoginIn, MemorialDocxIn, OffsetIn, PendenciaIn,
+    PendenciaUpdate, PerimetroIn, ServicoIn, ServicoUpdate, SituacaoCarIn,
+)
 
 # Raiz do projeto: onde ficam index.html, css/ e js/ (servidos pela própria API)
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,6 +203,44 @@ def exportar_gpkg(servico_id: int):
         media_type="application/geopackage+sqlite3",
         headers={"Content-Disposition": f'attachment; filename="servico-{servico_id}.gpkg"'},
     )
+
+
+# Acompanhamento do CAR depois da inscrição: situação, histórico, prazo e pendências
+@api.get("/servicos/{servico_id}/car")
+def acompanhamento_car(servico_id: int):
+    with connect() as conn:
+        return repo.get_acompanhamento(conn, servico_id)
+
+
+@api.put("/servicos/{servico_id}/car/situacao")
+def registrar_situacao_car(servico_id: int, data: SituacaoCarIn):
+    with connect() as conn:
+        return repo.registrar_situacao(conn, servico_id, data)
+
+
+@api.post("/servicos/{servico_id}/car/pendencias", status_code=201)
+def criar_pendencia(servico_id: int, data: PendenciaIn):
+    with connect() as conn:
+        return repo.criar_pendencia(conn, servico_id, data)
+
+
+@api.put("/pendencias/{pendencia_id}")
+def atualizar_pendencia(pendencia_id: int, data: PendenciaUpdate):
+    with connect() as conn:
+        return repo.atualizar_pendencia(conn, pendencia_id, data)
+
+
+@api.delete("/pendencias/{pendencia_id}")
+def remover_pendencia(pendencia_id: int):
+    with connect() as conn:
+        return repo.remover_pendencia(conn, pendencia_id)
+
+
+# Prazos de complementação vencidos ou vencendo nos próximos `dias` (alerta da tela inicial)
+@api.get("/car/prazos")
+def prazos_car(dias: int = Query(default=30, ge=0, le=365)):
+    with connect() as conn:
+        return repo.prazos_car(conn, dias)
 
 
 # Um shapefile por camada do CAR, cada um no seu .zip, prontos para a etapa Geo do SICAR

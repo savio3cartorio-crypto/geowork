@@ -56,6 +56,12 @@ CREATE TABLE servicos (
   modulo_fiscal_ha  numeric(10, 4),                    -- valor do município (INCRA); não é fixo
   area_documental_ha numeric(14, 4) CHECK (area_documental_ha > 0),   -- área da matrícula/título
   rl_percentual     numeric(5, 2) CHECK (rl_percentual > 0 AND rl_percentual <= 100), -- mínimo de RL; nulo = 20%
+  -- Acompanhamento do CAR depois da inscrição (situações do SICAR-SP); histórico em car_situacoes
+  car_situacao      text        NOT NULL DEFAULT 'nao_inscrito' CHECK (car_situacao IN (
+                      'nao_inscrito', 'inscrito', 'em_analise', 'aguarda_complementacao', 'em_alteracao',
+                      'aprovado', 'aprovado_dispensa_rl', 'invalido', 'cancelado')),
+  car_situacao_data date,
+  car_prazo         date,                               -- prazo para complementar, quando 'aguarda_complementacao'
   -- Revisões (Rev 00, Rev 01...) e clonagem para desmembramento
   revisao           integer     NOT NULL DEFAULT 0,
   servico_origem_id bigint      REFERENCES servicos(id) ON DELETE SET NULL,
@@ -165,6 +171,29 @@ CREATE TABLE sessoes (
 
 CREATE INDEX sessoes_expira_em_idx ON sessoes (expira_em);
 
+-- Acompanhamento do CAR -----------------------------------------------------
+
+CREATE TABLE car_situacoes (
+  id            bigserial PRIMARY KEY,
+  servico_id    bigint      NOT NULL REFERENCES servicos(id) ON DELETE CASCADE,
+  situacao      text        NOT NULL,
+  data          date        NOT NULL,
+  prazo         date,
+  observacao    text,
+  registrado_em timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX car_situacoes_servico ON car_situacoes (servico_id, data);
+
+CREATE TABLE car_pendencias (
+  id           bigserial PRIMARY KEY,
+  servico_id   bigint      NOT NULL REFERENCES servicos(id) ON DELETE CASCADE,
+  descricao    text        NOT NULL CHECK (length(trim(descricao)) > 0),
+  criada_em    date        NOT NULL DEFAULT current_date,
+  resolvida_em date
+);
+CREATE INDEX car_pendencias_servico ON car_pendencias (servico_id);
+CREATE INDEX servicos_car_prazo ON servicos (car_prazo) WHERE car_prazo IS NOT NULL;
+
 -- Controle de migrações -------------------------------------------------------
 -- O deploy (scripts/deploy-remoto.sh) aplica só os arquivos de db/migracoes ainda não listados aqui.
 -- Este schema já contém o efeito das migrações abaixo.
@@ -179,4 +208,5 @@ INSERT INTO schema_migracoes (arquivo) VALUES
   ('003_endereco_cliente.sql'),
   ('004_usuarios_e_sessoes.sql'),
   ('005_camadas_car.sql'),
-  ('006_servico_unico_por_cliente.sql');
+  ('006_servico_unico_por_cliente.sql'),
+  ('007_acompanhamento_car.sql');

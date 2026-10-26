@@ -12,12 +12,17 @@ import json
 import unicodedata
 import uuid
 from collections.abc import Iterator
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
 
-from .schemas import ArquivoIn, ClienteIn, ConfrontanteIn, CurvasIn, ServicoIn, VerticeMeta
+from .schemas import (
+    ArquivoIn, ClienteIn, ConfrontanteIn, CurvasIn, PendenciaIn, PendenciaUpdate, ServicoIn, SituacaoCarIn,
+    VerticeMeta,
+)
 
 COLUNAS_CLIENTE = (
     "id, nome, cpf_cnpj, email, telefone, cep, logradouro, numero, complemento, bairro, municipio, uf"
@@ -282,10 +287,10 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
         """
         INSERT INTO servicos (empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
                               matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
-                              revisao, servico_origem_id)
+                              car_situacao, car_situacao_data, car_prazo, revisao, servico_origem_id)
         SELECT empresa_id, cliente_id, rt_id, tipo, nome_imovel, codigo_car, codigo_sncr,
                matricula, modulo_fiscal_ha, area_documental_ha, rl_percentual,
-               %(rev)s, id
+               car_situacao, car_situacao_data, car_prazo, %(rev)s, id
         FROM servicos WHERE id = %(old)s
         RETURNING id, nome_imovel, revisao
         """,
@@ -306,6 +311,21 @@ def nova_revisao(conn: Connection, servico_id: int) -> dict:
                                     sigma_z, metodo_posicionamento)
         SELECT %(new)s, codigo, ordem, tipo, geom, altitude, sigma_x, sigma_y, sigma_z, metodo_posicionamento
         FROM vertices_sigef WHERE servico_id = %(old)s
+        """,
+        params,
+    )
+    # O CAR é do imóvel, não da revisão do desenho: histórico e pendências seguem para a revisão nova
+    conn.execute(
+        """
+        INSERT INTO car_situacoes (servico_id, situacao, data, prazo, observacao, registrado_em)
+        SELECT %(new)s, situacao, data, prazo, observacao, registrado_em FROM car_situacoes WHERE servico_id = %(old)s
+        """,
+        params,
+    )
+    conn.execute(
+        """
+        INSERT INTO car_pendencias (servico_id, descricao, criada_em, resolvida_em)
+        SELECT %(new)s, descricao, criada_em, resolvida_em FROM car_pendencias WHERE servico_id = %(old)s
         """,
         params,
     )
@@ -636,3 +656,119 @@ def camadas_para_sicar(conn: Connection, servico_id: int, categorias: list[str])
     for row in linhas:
         camadas.setdefault(row["categoria"], []).append({**row, "wkb": bytes(row["wkb"])})
     return servico, camadas
+
+
+# ---------- acompanhamento do CAR depois da inscrição ----------
+
+FUSO = ZoneInfo("America/Sao_Paulo")  # o servidor roda em UTC; o "hoje" dos prazos é o de Brasília
+
+
+def hoje() -> date:
+    return datetime.now(FUSO).date()
+
+
+def _require_pendencia(conn: Connection, pendencia_id: int) -> dict:
+    row = conn.execute("SELECT * FROM car_pendencias WHERE id = %s", (pendencia_id,)).fetchone()
+    if row is None:
+        raise LookupError(f"pendência {pendencia_id} não encontrada")
+    return row
+
+
+def get_acompanhamento(conn: Connection, servico_id: int) -> dict:
+    servico = _require_servico(conn, servico_id)
+    prazo = servico["car_prazo"]
+    return {
+        "servico_id": servico_id,
+        "situacao": servico["car_situacao"],
+        "data": servico["car_situacao_data"],
+        "prazo": prazo,
+        "dias_restantes": (prazo - hoje()).days if prazo else None,
+        "historico": conn.execute(
+            """
+            SELECT id, situacao, data, prazo, observacao FROM car_situacoes
+            WHERE servico_id = %s ORDER BY data DESC, registrado_em DESC
+            """,
+            (servico_id,),
+        ).fetchall(),
+        "pendencias": conn.execute(
+            """
+            SELECT id, descricao, criada_em, resolvida_em FROM car_pendencias
+            WHERE servico_id = %s ORDER BY resolvida_em IS NOT NULL, criada_em, id
+            """,
+            (servico_id,),
+        ).fetchall(),
+    }
+
+
+def registrar_situacao(conn: Connection, servico_id: int, data: SituacaoCarIn) -> dict:
+    """Muda a situação atual do CAR e guarda a mudança no histórico."""
+    _require_servico(conn, servico_id)
+    dia = data.data or hoje()
+    prazo = data.prazo or (dia + timedelta(days=data.prazo_dias) if data.prazo_dias else None)
+    if prazo and prazo < dia:
+        raise ValueError("o prazo não pode ser anterior à data da situação")
+    observacao = (data.observacao or "").strip() or None
+    conn.execute(
+        "UPDATE servicos SET car_situacao = %s, car_situacao_data = %s, car_prazo = %s WHERE id = %s",
+        (data.situacao, dia, prazo, servico_id),
+    )
+    conn.execute(
+        "INSERT INTO car_situacoes (servico_id, situacao, data, prazo, observacao) VALUES (%s, %s, %s, %s, %s)",
+        (servico_id, data.situacao, dia, prazo, observacao),
+    )
+    return get_acompanhamento(conn, servico_id)
+
+
+def criar_pendencia(conn: Connection, servico_id: int, data: PendenciaIn) -> dict:
+    _require_servico(conn, servico_id)
+    return conn.execute(
+        """
+        INSERT INTO car_pendencias (servico_id, descricao, criada_em) VALUES (%s, %s, %s)
+        RETURNING id, servico_id, descricao, criada_em, resolvida_em
+        """,
+        (servico_id, data.descricao, hoje()),
+    ).fetchone()
+
+
+def atualizar_pendencia(conn: Connection, pendencia_id: int, data: PendenciaUpdate) -> dict:
+    atual = _require_pendencia(conn, pendencia_id)
+    descricao = data.descricao.strip() if data.descricao and data.descricao.strip() else atual["descricao"]
+    resolvida_em = atual["resolvida_em"]
+    if data.resolvida is not None:
+        resolvida_em = (resolvida_em or hoje()) if data.resolvida else None
+    return conn.execute(
+        """
+        UPDATE car_pendencias SET descricao = %s, resolvida_em = %s WHERE id = %s
+        RETURNING id, servico_id, descricao, criada_em, resolvida_em
+        """,
+        (descricao, resolvida_em, pendencia_id),
+    ).fetchone()
+
+
+def remover_pendencia(conn: Connection, pendencia_id: int) -> dict:
+    _require_pendencia(conn, pendencia_id)
+    conn.execute("DELETE FROM car_pendencias WHERE id = %s", (pendencia_id,))
+    return {"id": pendencia_id, "removida": True}
+
+
+def prazos_car(conn: Connection, dias: int) -> list[dict]:
+    """CARs aguardando complementação com prazo vencido ou vencendo nos próximos `dias`, do mais urgente."""
+    dia = hoje()
+    linhas = conn.execute(
+        """
+        SELECT s.id, s.cliente_id, c.nome AS cliente, s.nome_imovel, s.revisao, s.codigo_car, s.car_prazo AS prazo,
+               (SELECT count(*) FROM car_pendencias p WHERE p.servico_id = s.id AND p.resolvida_em IS NULL)
+                 AS pendencias_abertas
+        FROM servicos s LEFT JOIN clientes c ON c.id = s.cliente_id
+        WHERE s.car_situacao = 'aguarda_complementacao' AND s.car_prazo <= %s
+          -- só a revisão mais recente do imóvel: as anteriores carregam a mesma situação copiada
+          AND NOT EXISTS (
+            SELECT 1 FROM servicos n
+            WHERE n.empresa_id = s.empresa_id AND n.cliente_id IS NOT DISTINCT FROM s.cliente_id
+              AND n.nome_imovel = s.nome_imovel AND n.revisao > s.revisao
+          )
+        ORDER BY s.car_prazo, s.nome_imovel
+        """,
+        (dia + timedelta(days=dias),),
+    ).fetchall()
+    return [{**linha, "dias_restantes": (linha["prazo"] - dia).days} for linha in linhas]

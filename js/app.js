@@ -337,6 +337,189 @@
     renderArquivos();
   }
 
+  // ---------- Acompanhamento do CAR depois da inscrição (só com o servidor) ----------
+  // Situações do Módulo de Análise do SICAR-SP; "não inscrito" é o CAR ainda em preparo no GeoWork
+  const SITUACOES_CAR = {
+    nao_inscrito: 'Não inscrito',
+    inscrito: 'Inscrito',
+    em_analise: 'Em análise',
+    aguarda_complementacao: 'Aguarda alteração/complementação de informações',
+    em_alteracao: 'Em alteração',
+    aprovado: 'Aprovado',
+    aprovado_dispensa_rl: 'Aprovado com dispensa de Reserva Legal',
+    invalido: 'Inválido',
+    cancelado: 'Cancelado',
+  };
+  const PRAZO_ALERTA_DIAS = 30; // o topo avisa prazos vencidos ou vencendo nesse intervalo
+  let acompanhamento = null;
+  let prazos = [];
+
+  const dataBr = iso => (iso ? iso.split('-').reverse().join('/') : '-');
+  const hojeIso = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); // data local, não a UTC
+    return d.toISOString().slice(0, 10);
+  };
+  const textoPrazo = dias =>
+    dias < 0 ? `vencido há ${-dias} dia(s)` : dias === 0 ? 'vence hoje' : `faltam ${dias} dia(s)`;
+  const corPrazo = dias => (dias <= 7 ? 'text-rose-400' : dias <= 15 ? 'text-amber-300' : 'text-emerald-300');
+
+  async function loadAcompanhamento() {
+    const s = svc();
+    acompanhamento = null;
+    try {
+      if (remote.mode === 'api' && s && s.remote) acompanhamento = await api(`/servicos/${s.id}/car`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro ao carregar a situação do CAR: ${err.message}`, true);
+    }
+    renderAcompanhamento();
+  }
+
+  function mostrarCamposPrazo() {
+    const comPrazo = el('carSituacaoSel').value === 'aguarda_complementacao';
+    el('carPrazoCampos').classList.toggle('hidden', !comPrazo);
+  }
+
+  function renderAcompanhamento() {
+    const a = acompanhamento;
+    el('carAcomp').classList.toggle('hidden', !a);
+    el('carAcompOff').classList.toggle('hidden', !!a);
+    if (!a) return;
+
+    el('carSituacaoAtual').textContent = `${SITUACOES_CAR[a.situacao]}${a.data ? ` desde ${dataBr(a.data)}` : ''}`;
+    const prazo = el('carPrazoAtual');
+    prazo.textContent = a.prazo ? `Prazo para complementar: ${dataBr(a.prazo)} (${textoPrazo(a.dias_restantes)})` : '';
+    prazo.className = `text-[11px] font-semibold ${a.prazo ? corPrazo(a.dias_restantes) : ''}`;
+
+    el('carSituacaoSel').value = a.situacao;
+    el('carSituacaoData').value = hojeIso();
+    el('carPrazoDias').value = '';
+    el('carPrazoData').value = '';
+    el('carSituacaoObs').value = '';
+    mostrarCamposPrazo();
+
+    const pend = el('carPendencias');
+    pend.replaceChildren();
+    if (!a.pendencias.length) {
+      const li = document.createElement('li');
+      li.className = 'text-slate-500';
+      li.textContent = 'Nenhuma pendência registrada.';
+      pend.append(li);
+    }
+    a.pendencias.forEach(p => {
+      const li = document.createElement('li');
+      li.className = 'flex items-start gap-1.5';
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.checked = !!p.resolvida_em;
+      check.className = 'mt-0.5';
+      check.title = p.resolvida_em ? 'Marcar como aberta' : 'Marcar como resolvida';
+      check.dataset.pendencia = p.id;
+      const texto = document.createElement('span');
+      texto.className = `flex-1 ${p.resolvida_em ? 'line-through text-slate-500' : 'text-slate-200'}`;
+      texto.textContent = `${p.descricao} (${dataBr(p.criada_em)}${p.resolvida_em ? `; resolvida em ${dataBr(p.resolvida_em)}` : ''})`;
+      const remover = document.createElement('button');
+      remover.type = 'button';
+      remover.className = 'text-rose-400 hover:text-rose-300 px-1';
+      remover.title = 'Remover pendência';
+      remover.textContent = '×';
+      remover.dataset.removerPendencia = p.id;
+      li.append(check, texto, remover);
+      pend.append(li);
+    });
+
+    const hist = el('carHistorico');
+    hist.replaceChildren();
+    if (!a.historico.length) {
+      const li = document.createElement('li');
+      li.className = 'text-slate-500';
+      li.textContent = 'Sem mudanças registradas.';
+      hist.append(li);
+    }
+    a.historico.forEach(h => {
+      const li = document.createElement('li');
+      const extras = [h.prazo ? `prazo ${dataBr(h.prazo)}` : '', h.observacao || ''].filter(Boolean).join('; ');
+      li.textContent = `${dataBr(h.data)} · ${SITUACOES_CAR[h.situacao] || h.situacao}${extras ? ` — ${extras}` : ''}`;
+      hist.append(li);
+    });
+  }
+
+  async function registrarSituacao() {
+    const s = svc();
+    if (!acompanhamento || !s) return;
+    const situacao = el('carSituacaoSel').value;
+    const body = { situacao, data: el('carSituacaoData').value || null, observacao: el('carSituacaoObs').value.trim() || null };
+    if (situacao === 'aguarda_complementacao') {
+      const dias = parseInt(el('carPrazoDias').value, 10);
+      if (dias > 0) body.prazo_dias = dias;
+      else if (el('carPrazoData').value) body.prazo = el('carPrazoData').value;
+      else return msg('Informe o prazo dado pelo órgão, em dias ou como data.', true);
+    }
+    try {
+      acompanhamento = await api(`/servicos/${s.id}/car/situacao`, { method: 'PUT', body });
+      renderAcompanhamento();
+      await loadPrazos();
+      msg(`Situação do CAR: ${SITUACOES_CAR[situacao]}.`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Não foi possível registrar a situação: ${err.message}`, true);
+    }
+  }
+
+  // Pendências: incluir, marcar como resolvida (ou reabrir) e remover; depois recarrega o acompanhamento
+  async function alterarPendencia(acao) {
+    const s = svc();
+    try {
+      await acao(s);
+      await loadAcompanhamento();
+      await loadPrazos();
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro na pendência: ${err.message}`, true);
+    }
+  }
+
+  // Alerta do topo: CARs aguardando complementação com prazo vencido ou vencendo
+  async function loadPrazos() {
+    prazos = [];
+    try {
+      if (remote.mode === 'api') prazos = await api(`/car/prazos?dias=${PRAZO_ALERTA_DIAS}`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) console.error('Falha ao carregar os prazos do CAR:', err);
+    }
+    renderPrazos();
+  }
+
+  function renderPrazos() {
+    const btn = el('btnPrazos');
+    btn.classList.toggle('hidden', !prazos.length);
+    if (!prazos.length) return el('prazosPainel').classList.add('hidden');
+    const urgente = prazos.some(p => p.dias_restantes <= 7);
+    btn.textContent = `⏰ ${prazos.length} prazo(s) do CAR`;
+    btn.className = `px-2.5 py-1.5 rounded text-xs font-semibold border ${
+      urgente
+        ? 'bg-rose-500/20 border-rose-500/60 text-rose-300 hover:bg-rose-500/30'
+        : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
+    }`;
+    const lista = el('prazosLista');
+    lista.replaceChildren();
+    prazos.forEach(p => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'w-full text-left px-2 py-1 rounded hover:bg-slate-800';
+      b.dataset.prazoServico = p.id;
+      b.dataset.prazoCliente = p.cliente_id ?? '';
+      const linha1 = document.createElement('div');
+      linha1.className = 'font-semibold text-slate-100';
+      linha1.textContent = `${p.nome_imovel} [Rev ${pad2(p.revisao)}] · ${p.cliente || 'sem cliente'}`;
+      const linha2 = document.createElement('div');
+      linha2.className = corPrazo(p.dias_restantes);
+      linha2.textContent = `Prazo ${dataBr(p.prazo)}: ${textoPrazo(p.dias_restantes)} · ${p.pendencias_abertas} pendência(s) aberta(s)`;
+      b.append(linha1, linha2);
+      li.append(b);
+      lista.append(li);
+    });
+  }
+
   async function fileToBase64(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     let bin = '';
@@ -355,6 +538,7 @@
     if (id != null) await loadServico(id);
     else removerCurvas();
     await loadArquivos();
+    await loadAcompanhamento();
     refresh();
   }
 
@@ -1775,6 +1959,41 @@
     ev.returnValue = '';
   });
 
+  // Situação do CAR, pendências e alerta de prazos
+  Object.entries(SITUACOES_CAR).forEach(([valor, texto]) => el('carSituacaoSel').append(opt(valor, texto)));
+  el('carSituacaoSel').addEventListener('change', mostrarCamposPrazo);
+  el('btnRegistrarSituacao').addEventListener('click', registrarSituacao);
+  const adicionarPendencia = () => {
+    const descricao = el('carPendenciaNova').value.trim();
+    if (!descricao) return msg('Descreva a pendência apontada no parecer.', true);
+    alterarPendencia(async s => {
+      await api(`/servicos/${s.id}/car/pendencias`, { method: 'POST', body: { descricao } });
+      el('carPendenciaNova').value = '';
+    });
+  };
+  el('btnAddPendencia').addEventListener('click', adicionarPendencia);
+  el('carPendenciaNova').addEventListener('keydown', e => e.key === 'Enter' && adicionarPendencia());
+  el('carPendencias').addEventListener('change', e => {
+    const id = e.target.dataset.pendencia;
+    if (id) alterarPendencia(() => api(`/pendencias/${id}`, { method: 'PUT', body: { resolvida: e.target.checked } }));
+  });
+  el('carPendencias').addEventListener('click', e => {
+    const id = e.target.dataset.removerPendencia;
+    if (id && confirm('Remover esta pendência?')) alterarPendencia(() => api(`/pendencias/${id}`, { method: 'DELETE' }));
+  });
+  el('btnPrazos').addEventListener('click', () => el('prazosPainel').classList.toggle('hidden'));
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#btnPrazos, #prazosPainel')) el('prazosPainel').classList.add('hidden');
+  });
+  el('prazosLista').addEventListener('click', async e => {
+    const item = e.target.closest('[data-prazo-servico]');
+    if (!item) return;
+    el('prazosPainel').classList.add('hidden');
+    state.activeClientId = item.dataset.prazoCliente ? Number(item.dataset.prazoCliente) : null;
+    await selectService(Number(item.dataset.prazoServico));
+    switchPillar('dados');
+  });
+
   el('btnSair').addEventListener('click', async () => {
     try {
       await fetch('/auth/logout', { method: 'POST' });
@@ -1808,6 +2027,8 @@
       msg('Modo local: servidor não encontrado. Os dados ficam neste navegador.');
     }
     await loadArquivos();
+    await loadAcompanhamento();
+    await loadPrazos();
     setBaseMode('sat');
     switchPillar('limites');
     refresh();

@@ -504,3 +504,64 @@ def test_pacote_sicar_um_shapefile_por_camada(client, servico, tmp_path):
     zipfile.ZipFile(io.BytesIO(pacote.read("01_area_do_imovel.zip"))).extractall(tmp_path)
     _, _, _, campos = pyogrio.raw.read(tmp_path / "01_area_do_imovel.shp")
     assert 100 < campos[1][0] < 130  # area_ha do quadrado de 0,01° (~113 ha)
+
+
+def test_situacao_do_car_com_prazo_e_historico(client, servico):
+    url = f"/servicos/{servico['id']}/car"
+    inicial = client.get(url).json()
+    assert inicial["situacao"] == "nao_inscrito" and inicial["historico"] == [] and inicial["prazo"] is None
+
+    client.put(f"{url}/situacao", json={"situacao": "inscrito", "data": "2026-01-10"})
+    r = client.put(f"{url}/situacao", json={"situacao": "aguarda_complementacao", "data": "2026-03-01",
+                                            "prazo_dias": 30, "observacao": "notificação por e-mail"})
+    assert r.status_code == 200
+    car = r.json()
+    assert car["situacao"] == "aguarda_complementacao" and car["prazo"] == "2026-03-31"
+    assert [h["situacao"] for h in car["historico"]] == ["aguarda_complementacao", "inscrito"]
+    assert car["historico"][0]["observacao"] == "notificação por e-mail"
+
+    # prazo só em 'aguarda complementação', e obrigatório nela
+    assert client.put(f"{url}/situacao", json={"situacao": "aguarda_complementacao"}).status_code == 422
+    assert client.put(f"{url}/situacao", json={"situacao": "aprovado", "prazo_dias": 5}).status_code == 422
+    assert client.put(f"{url}/situacao", json={"situacao": "aguarda_complementacao", "data": "2026-03-01",
+                                               "prazo": "2026-02-01"}).status_code == 422
+    # aprovado limpa o prazo
+    aprovado = client.put(f"{url}/situacao", json={"situacao": "aprovado", "data": "2026-04-02"}).json()
+    assert aprovado["prazo"] is None and aprovado["dias_restantes"] is None
+
+
+def test_pendencias_do_car(client, servico):
+    url = f"/servicos/{servico['id']}/car"
+    assert client.post(f"{url}/pendencias", json={"descricao": "   "}).status_code == 422
+    p1 = client.post(f"{url}/pendencias", json={"descricao": "RL sobre APP sem justificativa"}).json()
+    p2 = client.post(f"{url}/pendencias", json={"descricao": "Anexar matrícula atualizada"}).json()
+    feita = client.put(f"/pendencias/{p1['id']}", json={"resolvida": True}).json()
+    assert feita["resolvida_em"] is not None
+    # abertas primeiro, resolvidas no fim
+    assert [p["id"] for p in client.get(url).json()["pendencias"]] == [p2["id"], p1["id"]]
+    assert client.put(f"/pendencias/{p1['id']}", json={"resolvida": False}).json()["resolvida_em"] is None
+    assert client.delete(f"/pendencias/{p2['id']}").status_code == 200
+    assert client.delete(f"/pendencias/{p2['id']}").status_code == 404
+
+
+def test_alerta_de_prazos_e_revisao_leva_o_acompanhamento(client, servico):
+    from datetime import date, timedelta
+
+    sid = servico["id"]
+    hoje = date.today()
+    client.put(f"/servicos/{sid}/car/situacao", json={"situacao": "aguarda_complementacao",
+                                                      "data": hoje.isoformat(), "prazo_dias": 10})
+    client.post(f"/servicos/{sid}/car/pendencias", json={"descricao": "Corrigir sobreposição"})
+
+    def no_alerta(dias):
+        return [p for p in client.get(f"/car/prazos?dias={dias}").json() if p["nome_imovel"] == servico["nome_imovel"]]
+
+    assert no_alerta(5) == []
+    [item] = no_alerta(30)
+    assert item["id"] == sid and item["pendencias_abertas"] == 1 and 9 <= item["dias_restantes"] <= 11
+
+    nova = client.post(f"/servicos/{sid}/revisoes").json()
+    car = client.get(f"/servicos/{nova['id']}/car").json()
+    assert car["situacao"] == "aguarda_complementacao" and len(car["pendencias"]) == 1 and len(car["historico"]) == 1
+    # o alerta mostra só a revisão mais recente
+    assert [p["id"] for p in no_alerta(30)] == [nova["id"]]

@@ -1,7 +1,8 @@
 import re
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Coord = tuple[float, float]  # [lng, lat] em SIRGAS 2000 geográfico
 
@@ -192,3 +193,48 @@ class CurvasIn(BaseModel):
 class LoginIn(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     senha: str = Field(min_length=1, max_length=200)
+
+
+# Situações do CAR no Módulo de Análise do SICAR-SP, mais "não inscrito" para o que ainda está no GeoWork
+SituacaoCar = Literal[
+    "nao_inscrito", "inscrito", "em_analise", "aguarda_complementacao", "em_alteracao",
+    "aprovado", "aprovado_dispensa_rl", "invalido", "cancelado",
+]
+
+
+class SituacaoCarIn(BaseModel):
+    """Nova situação do CAR. Em 'aguarda_complementacao' o órgão dá um prazo: data final ou dias a contar
+    da data da situação (a notificação). Sem data, vale hoje."""
+
+    situacao: SituacaoCar
+    data: date | None = None
+    prazo: date | None = None
+    prazo_dias: int | None = Field(default=None, gt=0, le=3650)
+    observacao: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _valida_prazo(self):
+        if self.prazo and self.prazo_dias:
+            raise ValueError("informe o prazo como data ou em dias, não os dois")
+        if self.situacao == "aguarda_complementacao":
+            if not (self.prazo or self.prazo_dias):
+                raise ValueError("a situação 'aguarda complementação' exige o prazo dado pelo órgão")
+        elif self.prazo or self.prazo_dias:
+            raise ValueError("só a situação 'aguarda complementação' tem prazo")
+        return self
+
+
+class PendenciaIn(BaseModel):
+    descricao: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("descricao")
+    @classmethod
+    def _sem_vazio(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("descreva a pendência")
+        return v.strip()
+
+
+class PendenciaUpdate(BaseModel):
+    descricao: str | None = Field(default=None, min_length=1, max_length=2000)
+    resolvida: bool | None = None

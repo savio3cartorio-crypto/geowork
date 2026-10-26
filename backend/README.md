@@ -81,6 +81,10 @@ Sem banco disponível, os testes são pulados, sem falhar.
 | `GET /buscar?q=` | busca serviços por nome do imóvel, código CAR, código INCRA/SNCR, matrícula, nome ou documento do cliente |
 | `PUT /servicos/{id}/curvas`, `DELETE /servicos/{id}/curvas` | grava (substitui) ou remove as curvas de nível; cada cota é uma linha da categoria `curvas` com `propriedades.cota` |
 | `GET /servicos/{id}/exportar.gpkg` | base vetorial em GeoPackage (SIRGAS 2000, EPSG:4674): uma camada por categoria (perímetro, camadas do CAR, `edificacao`, `curvas`) e `vertices` com código, altitude e precisão |
+| `GET /servicos/{id}/car` | acompanhamento do CAR: situação atual, prazo, dias restantes, histórico e pendências |
+| `PUT /servicos/{id}/car/situacao` | registra nova situação (`inscrito`, `em_analise`, `aguarda_complementacao`, `em_alteracao`, `aprovado`, `aprovado_dispensa_rl`, `invalido`, `cancelado`); `aguarda_complementacao` exige `prazo` (data) ou `prazo_dias` |
+| `POST /servicos/{id}/car/pendencias`, `PUT /pendencias/{id}`, `DELETE /pendencias/{id}` | pendências do parecer: incluir, editar ou marcar `resolvida`, remover |
+| `GET /car/prazos?dias=30` | CARs aguardando complementação com prazo vencido ou vencendo em `dias` (só a revisão mais recente), com pendências abertas |
 | `GET /servicos/{id}/exportar-sicar.zip` | pacote para a etapa Geo do SICAR: um .zip de shapefile por camada do CAR (EPSG:4674, com `area_ha` ou `compr_m`) e um `LEIA-ME.txt` com a categoria de cada arquivo |
 | `POST /memorial.docx` | gera o memorial em Word a partir das linhas do texto (`corrido` ou `tabular`) |
 
