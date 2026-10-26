@@ -84,6 +84,7 @@ Sem banco disponível, os testes são pulados, sem falhar.
 | `GET /servicos/{id}/car` | acompanhamento do CAR: situação atual, prazo, dias restantes, histórico e pendências |
 | `PUT /servicos/{id}/car/situacao` | registra nova situação (`inscrito`, `em_analise`, `aguarda_complementacao`, `em_alteracao`, `aprovado`, `aprovado_dispensa_rl`, `invalido`, `cancelado`); `aguarda_complementacao` exige `prazo` (data) ou `prazo_dias` |
 | `POST /servicos/{id}/car/pendencias`, `PUT /pendencias/{id}`, `DELETE /pendencias/{id}` | pendências do parecer: incluir, editar ou marcar `resolvida`, remover |
+| `GET /servicos/{id}/sobreposicoes` | cruza o perímetro com bases públicas oficiais (CAR/SICAR, SIGEF, terras indígenas, UCs, assentamentos, florestas públicas, embargos IBAMA/ICMBio, processos ANM); devolve achados com área e % do imóvel, fontes consultadas e o módulo fiscal estimado pelos CARs vizinhos |
 | `GET /car/prazos?dias=30` | CARs aguardando complementação com prazo vencido ou vencendo em `dias` (só a revisão mais recente), com pendências abertas |
 | `GET /servicos/{id}/exportar-sicar.zip` | pacote para a etapa Geo do SICAR: um .zip de shapefile por camada do CAR (EPSG:4674, com `area_ha` ou `compr_m`) e um `LEIA-ME.txt` com a categoria de cada arquivo |
 | `POST /memorial.docx` | gera o memorial em Word a partir das linhas do texto (`corrido` ou `tabular`) |

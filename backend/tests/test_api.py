@@ -565,3 +565,60 @@ def test_alerta_de_prazos_e_revisao_leva_o_acompanhamento(client, servico):
     assert car["situacao"] == "aguarda_complementacao" and len(car["pendencias"]) == 1 and len(car["historico"]) == 1
     # o alerta mostra só a revisão mais recente
     assert [p["id"] for p in no_alerta(30)] == [nova["id"]]
+
+
+def _poligono(x0, y0, x1, y1, **props):
+    anel = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+    return {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [anel]}, "properties": props}
+
+
+def test_sobreposicoes_com_bases_publicas(client, servico, monkeypatch):
+    import httpx
+
+    from app import consultas_publicas
+
+    url = f"/servicos/{servico['id']}"
+    assert client.get(f"{url}/sobreposicoes").status_code == 422  # sem perímetro
+    client.put(f"{url}/perimetro", json={"ring": QUADRADO})  # -45,53..-45,52 x -23,04..-23,03
+    meu_car = "SP-3554102-C4225CF1FD2B49A49D26315BA66897C1"
+    client.put(url, json={"codigo_car": meu_car})
+    chamadas = []
+
+    def falso(caixa, caixa_ampla):
+        chamadas.append((caixa, caixa_ampla))
+        vizinhos = [_poligono(-45.60 + i * 0.001, -23.10, -45.599 + i * 0.001, -23.099,
+                              cod_imovel=f"SP-X-{i}", area=40.0, m_fiscal=2.0, municipio="Taubaté") for i in range(4)]
+        return {
+            "car": [
+                _poligono(-45.530, -23.040, -45.520, -23.030, cod_imovel=meu_car, area=113.4, m_fiscal=5.67,
+                          municipio="Taubaté", condicao="Aguardando análise"),
+                _poligono(-45.525, -23.040, -45.515, -23.030, cod_imovel="SP-OUTRO", condicao="Aguardando análise",
+                          area=100.0, m_fiscal=5.0, municipio="Taubaté"),
+                _poligono(-45.52001, -23.040, -45.510, -23.030, cod_imovel="SP-DIVISA", area=80.0, m_fiscal=4.0,
+                          municipio="Taubaté"),  # invade ~1 m ao longo de 1,1 km de divisa: lasca
+                *vizinhos,
+            ],
+            "embargo_ibama": [_poligono(-45.529, -23.039, -45.528, -23.038, num_tad="123", serie_tad="C",
+                                        dat_embargo=1651104000000, nome_embargado="NÃO DEVE APARECER")],
+            "terra_indigena": [],
+            "mineracao": httpx.ConnectTimeout("tempo esgotado"),
+        }
+
+    monkeypatch.setattr(consultas_publicas, "buscar", falso)
+    r = client.get(f"{url}/sobreposicoes")
+    assert r.status_code == 200
+    d = r.json()
+    caixa, ampla = chamadas[0]
+    assert caixa == pytest.approx((-45.53, -23.04, -45.52, -23.03)) and ampla[0] < caixa[0]
+
+    niveis = {a["texto"].split(":")[0]: a["nivel"] for a in d["achados"]}
+    assert d["achados"][0]["nivel"] == "erro" and "Embargo IBAMA" in d["achados"][0]["texto"]
+    assert "NÃO DEVE APARECER" not in r.text
+    car = [a for a in d["achados"] if a["fonte"] == "car"]
+    assert {a["nivel"] for a in car} == {"ok", "aviso"}  # o próprio CAR e o vizinho que invade metade
+    outro = next(a for a in car if "SP-OUTRO" in a["texto"])
+    assert 45 < outro["pct"] < 55
+    assert d["toques_de_divisa"] == 1 and niveis
+    fontes = {f["id"]: f for f in d["fontes"]}
+    assert fontes["mineracao"]["ok"] is False and fontes["terra_indigena"]["ok"] is True
+    assert d["mf_sugerido"] == {"municipio": "Taubaté", "mf_ha": 20.0, "amostras": 7}

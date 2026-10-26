@@ -36,14 +36,6 @@
     OUTRO: 'Outro',
   };
 
-  // Endpoints WMS herdados do protótipo original. Confirmar antes de usar em produção.
-  const WMS = {
-    sigef: { url: 'https://acervofundiario.incra.gov.br/i3geo/ogc.php?tema=certificada_sigef_particular_sp', layers: 'certificada_sigef_particular_sp' },
-    sicar: { url: 'https://geoserver.car.gov.br/geoserver/sicar/wms', layers: 'sicar:sicar_imoveis_sp' },
-    igc: { url: 'http://datageo.ambiente.sp.gov.br/geoserver/datageo/ows', layers: 'datageo:LimiteMunicipal' },
-    hidro: { url: 'http://datageo.ambiente.sp.gov.br/geoserver/datageo/ows', layers: 'datageo:Hidrografia' },
-  };
-
   const el = id => document.getElementById(id);
   const fmt = (value, digits = 2) =>
     value.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -477,6 +469,86 @@
     }
   }
 
+  // ---------- Sobreposições com bases públicas (consulta feita pelo servidor) ----------
+  function limparSobreposicoes() {
+    el('sobreposicoesLista').replaceChildren();
+    el('sobreposicoesFontes').replaceChildren();
+    el('mfSugerido').classList.add('hidden');
+  }
+
+  async function consultarSobreposicoes() {
+    const s = svc();
+    if (remote.mode !== 'api' || !s || !s.remote) return msg('A consulta precisa do servidor e de um serviço salvo.', true);
+    if (!s.layers.perimetro.length) return msg('Desenhe ou importe o perímetro antes de consultar.', true);
+    const btn = el('btnSobreposicoes');
+    btn.disabled = true;
+    btn.textContent = 'Consultando as bases… (até 30 s)';
+    limparSobreposicoes();
+    try {
+      await flushSync(); // o servidor cruza o perímetro gravado
+      renderSobreposicoes(await api(`/servicos/${s.id}/sobreposicoes`));
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro na consulta: ${err.message}`, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Consultar bases públicas';
+    }
+  }
+
+  function renderSobreposicoes(r) {
+    const marks = { ok: '✓ ', info: 'ℹ ', aviso: '⚠ ', erro: '✗ ' };
+    const colors = { ok: 'text-emerald-400', info: 'text-sky-300', aviso: 'text-amber-300', erro: 'text-rose-400' };
+    const lista = el('sobreposicoesLista');
+    const item = (nivel, texto) => {
+      const li = document.createElement('li');
+      li.className = colors[nivel];
+      li.textContent = marks[nivel] + texto;
+      lista.append(li);
+    };
+    r.achados.forEach(a => item(a.nivel, a.texto));
+    const consultadas = r.fontes.filter(f => f.ok).length;
+    if (!r.achados.length && consultadas) item('ok', `Nenhuma sobreposição nas ${consultadas} bases consultadas.`);
+    if (r.toques_de_divisa) {
+      item('info', `${r.toques_de_divisa} vizinho(s) só encostam na divisa (faixa com menos de 3 m de largura média).`);
+    }
+
+    const mf = el('mfSugerido');
+    mf.replaceChildren();
+    if (r.mf_sugerido) {
+      const texto = document.createElement('span');
+      texto.textContent =
+        `Módulo fiscal de ${r.mf_sugerido.municipio}: ${fmt(r.mf_sugerido.mf_ha, 1)} ha ` +
+        `(calculado de ${r.mf_sugerido.amostras} CARs vizinhos)`;
+      const usar = document.createElement('button');
+      usar.type = 'button';
+      usar.className = 'bg-sky-700 hover:bg-sky-600 px-2 py-0.5 rounded text-[10px] text-white shrink-0';
+      usar.textContent = 'Usar';
+      usar.addEventListener('click', () => {
+        const s = svc();
+        if (!s) return;
+        s.mf = r.mf_sugerido.mf_ha;
+        el('mfInput').value = s.mf;
+        commitChanges();
+        msg(`Módulo fiscal definido em ${fmt(s.mf, 1)} ha. Confira na tabela do INCRA.`);
+      });
+      mf.append(texto, usar);
+      mf.classList.remove('hidden');
+    }
+
+    const fontes = el('sobreposicoesFontes');
+    const hora = new Date(r.consultado_em).toLocaleString('pt-BR');
+    const cabeca = document.createElement('li');
+    cabeca.textContent = `Consulta de ${hora}:`;
+    fontes.append(cabeca);
+    r.fontes.forEach(f => {
+      const li = document.createElement('li');
+      li.className = f.ok ? '' : 'text-amber-400';
+      const extra = [f.nota, f.parcial ? 'resultado parcial (muitas feições)' : ''].filter(Boolean).join('; ');
+      li.textContent = `${f.ok ? '·' : '⚠'} ${f.nome}: ${f.ok ? `${f.feicoes} feição(ões) na área` : f.erro}${extra ? ` (${extra})` : ''}`;
+      fontes.append(li);
+    });
+  }
+
   // Alerta do topo: CARs aguardando complementação com prazo vencido ou vencendo
   async function loadPrazos() {
     prazos = [];
@@ -530,6 +602,7 @@
   // Troca o serviço ativo; no modo remoto carrega o detalhe antes de mostrar
   async function selectService(id) {
     state.activeServiceId = id ?? null;
+    limparSobreposicoes();
     ui.draft = null;
     if (remote.mode !== 'api') {
       removerCurvas(); // no modo local as curvas não são salvas: não ficam de um serviço para outro
@@ -626,12 +699,8 @@
     }),
   };
 
-  const wmsLayers = Object.fromEntries(
-    Object.entries(WMS).map(([key, cfg]) => [
-      key,
-      L.tileLayer.wms(cfg.url, { layers: cfg.layers, format: 'image/png', transparent: true, opacity: 0.7 }),
-    ])
-  );
+  // Camadas públicas oficiais (js/camadas-publicas.js), criadas só quando ligadas
+  const camadasPublicas = {};
 
   function setBaseMode(mode) {
     Object.values(baseLayers).forEach(layer => map.removeLayer(layer));
@@ -1766,13 +1835,64 @@
   document.querySelectorAll('[data-mode]').forEach(btn =>
     btn.addEventListener('click', () => setBaseMode(btn.dataset.mode))
   );
-  document.querySelectorAll('[data-wms]').forEach(box =>
-    box.addEventListener('change', () => {
-      const layer = wmsLayers[box.dataset.wms];
-      if (box.checked) layer.addTo(map);
-      else map.removeLayer(layer);
-    })
-  );
+  // Painel de camadas públicas, agrupado por tema
+  (() => {
+    const painel = el('camadasPublicas');
+    const grupos = {};
+    CamadasPublicas.CATALOGO.forEach(c => {
+      if (!grupos[c.grupo]) {
+        const titulo = document.createElement('div');
+        titulo.className = 'text-[10px] uppercase text-slate-500 font-semibold';
+        titulo.textContent = c.grupo;
+        grupos[c.grupo] = document.createElement('div');
+        grupos[c.grupo].className = 'space-y-1';
+        const bloco = document.createElement('div');
+        bloco.append(titulo, grupos[c.grupo]);
+        painel.append(bloco);
+      }
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 cursor-pointer';
+      label.title = `Fonte: ${c.fonte}${c.minZoom ? ' · aparece a partir do zoom ' + c.minZoom : ''}`;
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.className = c.cor;
+      box.dataset.camadaPublica = c.id;
+      const nome = document.createElement('span');
+      nome.textContent = `${c.nome} · ${c.fonte}`;
+      label.append(box, nome);
+      grupos[c.grupo].append(label);
+    });
+    painel.addEventListener('change', e => {
+      const id = e.target.dataset.camadaPublica;
+      if (!id) return;
+      const c = CamadasPublicas.CATALOGO.find(x => x.id === id);
+      if (!camadasPublicas[id]) {
+        camadasPublicas[id] = CamadasPublicas.criarCamada(c);
+        camadasPublicas[id].on('tileerror', () => msg(`A camada "${c.nome}" (${c.fonte}) não respondeu agora.`, true));
+      }
+      if (e.target.checked) {
+        camadasPublicas[id].addTo(map);
+        if (c.minZoom && map.getZoom() < c.minZoom) msg(`Aproxime o mapa para ver "${c.nome}" (zoom ${c.minZoom} ou mais).`);
+      } else map.removeLayer(camadasPublicas[id]);
+    });
+  })();
+
+  // O Mapa da ONR não abre numa coordenada pelo endereço: copia a do imóvel para colar na busca de lá
+  el('btnMapaOnr').addEventListener('click', async () => {
+    const s = svc();
+    const anel = s && s.layers.perimetro[0];
+    const [lng, lat] = anel
+      ? [anel.reduce((t, p) => t + p[0], 0) / anel.length, anel.reduce((t, p) => t + p[1], 0) / anel.length]
+      : [map.getCenter().lng, map.getCenter().lat];
+    const coord = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    window.open('https://mapa.onr.org.br/', '_blank', 'noopener');
+    try {
+      await navigator.clipboard.writeText(coord);
+      msg(`Coordenada ${anel ? 'do imóvel' : 'do centro do mapa'} copiada: ${coord}. Cole na busca do Mapa ONR.`);
+    } catch (err) {
+      msg(`Coordenada ${anel ? 'do imóvel' : 'do centro do mapa'}: ${coord}.`);
+    }
+  });
 
   // Pilar 1
   el('fileImport').addEventListener('change', e => {
@@ -1963,6 +2083,7 @@
   Object.entries(SITUACOES_CAR).forEach(([valor, texto]) => el('carSituacaoSel').append(opt(valor, texto)));
   el('carSituacaoSel').addEventListener('change', mostrarCamposPrazo);
   el('btnRegistrarSituacao').addEventListener('click', registrarSituacao);
+  el('btnSobreposicoes').addEventListener('click', consultarSobreposicoes);
   const adicionarPendencia = () => {
     const descricao = el('carPendenciaNova').value.trim();
     if (!descricao) return msg('Descreva a pendência apontada no parecer.', true);

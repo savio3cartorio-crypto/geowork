@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import docx_export, gpkg_export, repo, sicar_export
+from . import consultas_publicas, docx_export, gpkg_export, repo, sicar_export
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -234,6 +234,14 @@ def atualizar_pendencia(pendencia_id: int, data: PendenciaUpdate):
 def remover_pendencia(pendencia_id: int):
     with connect() as conn:
         return repo.remover_pendencia(conn, pendencia_id)
+
+
+# Sobreposição do perímetro com bases públicas oficiais (SICAR, SIGEF, TI, UC, embargos, ANM)
+@api.get("/servicos/{servico_id}/sobreposicoes")
+def sobreposicoes(servico_id: int):
+    with connect() as conn:
+        servico = repo.get_servico(conn, servico_id)
+        return consultas_publicas.consultar(conn, servico)
 
 
 # Prazos de complementação vencidos ou vencendo nos próximos `dias` (alerta da tela inicial)
