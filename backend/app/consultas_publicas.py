@@ -11,17 +11,23 @@ Cada fonte é consultada pela caixa envolvente do perímetro. As interseções s
 Dados pessoais das bases (nome e CPF/CNPJ de embargado, titular) não são lidos nem devolvidos.
 """
 
+import hashlib
 import json
+import re
 import statistics
+import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 from psycopg import Connection
 
 PAMGIA = "https://pamgia.ibama.gov.br/server/rest/services/01_Publicacoes_Bases"
 SICAR_WFS = "https://geoserver.car.gov.br/geoserver/sicar/wfs"
+SICAR_WMS = "https://geoserver.car.gov.br/geoserver/sicar/wms"
 ANM = "https://geo.anm.gov.br/arcgis/rest/services/SIGMINE/dados_anm/MapServer"
 TEMPO_LIMITE_S = 25
 LIMITE_FEICOES = 1000
@@ -149,8 +155,9 @@ def _medir(conn: Connection, servico_id: int, feicoes: list[dict]) -> list[dict]
     return sorted(linhas, key=lambda x: x["i"])
 
 
-def _sugerir_mf(car: list[dict]) -> dict | None:
-    """Módulo fiscal do município a partir dos CARs vizinhos: área do imóvel / nº de módulos fiscais."""
+def _sugerir_mf(car: list[dict], municipio_do_imovel: str | None = None) -> dict | None:
+    """Módulo fiscal do município a partir dos CARs vizinhos: área do imóvel / nº de módulos fiscais.
+    Usa o município do CAR que mais cobre o perímetro; sem ele, o município com mais CARs na área."""
     por_municipio: dict[str, list[float]] = {}
     for f in car:
         a = f.get("properties") or {}
@@ -158,7 +165,10 @@ def _sugerir_mf(car: list[dict]) -> dict | None:
             por_municipio.setdefault(a.get("municipio") or "?", []).append(a["area"] / a["m_fiscal"])
     if not por_municipio:
         return None
-    municipio, valores = max(por_municipio.items(), key=lambda kv: len(kv[1]))
+    if municipio_do_imovel in por_municipio:
+        municipio, valores = municipio_do_imovel, por_municipio[municipio_do_imovel]
+    else:
+        municipio, valores = max(por_municipio.items(), key=lambda kv: len(kv[1]))
     if len(valores) < 3:
         return None
     mediana = statistics.median(valores)
@@ -190,6 +200,7 @@ def consultar(conn: Connection, servico: dict, buscar_fontes: Callable | None = 
 
     fontes, achados = [], []
     car_feicoes: list[dict] = []
+    municipio_do_imovel, maior_car_ha = None, 0.0
     toques = 0
     for fid, resultado in resultados.items():
         nivel, descrever, nota = regras[fid]
@@ -209,6 +220,8 @@ def consultar(conn: Connection, servico: dict, buscar_fontes: Callable | None = 
                 continue
             pct = 100 * ha / medida["imovel_ha"] if medida["imovel_ha"] else 0.0
             attrs = feicao.get("properties") or {}
+            if fid == "car" and ha > maior_car_ha:
+                municipio_do_imovel, maior_car_ha = attrs.get("municipio"), ha
             proprio = (fid == "car" and meu_car and (attrs.get("cod_imovel") or "").upper() == meu_car) or (
                 fid in ("sigef", "sigef_publico") and meu_sncr and attrs.get("codigo_imo") == meu_sncr
             )
@@ -231,5 +244,51 @@ def consultar(conn: Connection, servico: dict, buscar_fontes: Callable | None = 
         "fontes": fontes,
         "achados": achados,
         "toques_de_divisa": toques,
-        "mf_sugerido": _sugerir_mf(car_feicoes),
+        "mf_sugerido": _sugerir_mf(car_feicoes, municipio_do_imovel),
     }
+
+
+# ---------- ladrilhos do SICAR repassados pelo servidor ----------
+# O geoserver do CAR alterna respostas e quedas de conexão; com vários ladrilhos simultâneos o navegador
+# recebe respostas que não são imagem (bloqueadas pelo ORB). O GeoWork pede, repete uma vez e guarda em cache.
+
+LADRILHO_CACHE_DIAS = 7
+_SEMAFORO_SICAR = threading.BoundedSemaphore(4)  # no máximo 4 pedidos simultâneos ao SICAR
+PADRAO_CAMADAS_SICAR = re.compile(r"^sicar:sicar_imoveis_[a-z]{2}(,sicar:sicar_imoveis_[a-z]{2}){0,26}$")
+
+
+def ladrilho_sicar(layers: str, bbox: str, tamanho: int, pasta_cache: Path) -> bytes:
+    if not PADRAO_CAMADAS_SICAR.match(layers):
+        raise ValueError("camadas do SICAR inválidas")
+    try:
+        caixa = [float(v) for v in bbox.split(",")]
+    except ValueError:
+        raise ValueError("bbox inválido") from None
+    if len(caixa) != 4 or tamanho not in (256, 512):
+        raise ValueError("bbox ou tamanho inválido")
+    chave = hashlib.sha256(f"{layers}|{','.join(f'{v:.2f}' for v in caixa)}|{tamanho}".encode()).hexdigest()
+    arquivo = pasta_cache / chave[:2] / f"{chave}.png"
+    if arquivo.exists() and time.time() - arquivo.stat().st_mtime < LADRILHO_CACHE_DIAS * 86400:
+        return arquivo.read_bytes()
+
+    params = {
+        "service": "WMS", "version": "1.1.1", "request": "GetMap", "layers": layers, "styles": "",
+        "format": "image/png", "transparent": "true", "srs": "EPSG:3857",
+        "bbox": ",".join(f"{v:.2f}" for v in caixa), "width": tamanho, "height": tamanho,
+    }
+    ultimo_erro: Exception | None = None
+    with _SEMAFORO_SICAR:
+        for _tentativa in range(2):
+            try:
+                with httpx.Client(timeout=20, headers={"User-Agent": "GeoWork/1.0"}) as cliente:
+                    r = cliente.get(SICAR_WMS, params=params)
+                if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/png"):
+                    arquivo.parent.mkdir(parents=True, exist_ok=True)
+                    temporario = arquivo.with_suffix(".tmp")
+                    temporario.write_bytes(r.content)
+                    temporario.replace(arquivo)
+                    return r.content
+                ultimo_erro = RuntimeError(f"SICAR respondeu {r.status_code} {r.headers.get('content-type')}")
+            except httpx.HTTPError as erro:
+                ultimo_erro = erro
+    raise ConnectionError(f"SICAR indisponível no momento ({ultimo_erro})")

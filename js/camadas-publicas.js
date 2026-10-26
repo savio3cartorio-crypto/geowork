@@ -1,6 +1,7 @@
 /*
  * Camadas públicas oficiais para ver no mapa. São as bases de origem que o Mapa do Registro de Imóveis
- * (ONR) também reúne; o GeoWork lê direto das fontes: SICAR (WMS), IBGE (WMS), PAMGIA/IBAMA e ANM (ArcGIS).
+ * (ONR) também reúne; o GeoWork lê direto das fontes: IBGE (WMS), PAMGIA/IBAMA e ANM (ArcGIS). O SICAR é
+ * instável para pedidos diretos do navegador e passa pelo servidor do GeoWork (/camadas/sicar.png, com cache).
  * Endereços conferidos em 26/10/2026. Depende de Leaflet.
  */
 const CamadasPublicas = (() => {
@@ -11,7 +12,7 @@ const CamadasPublicas = (() => {
   // minZoom: bases de imóveis só aparecem de perto (cada ladrilho pede milhares de polígonos).
   const CATALOGO = [
     { grupo: 'Fundiário', id: 'sicar', nome: 'Imóveis do CAR (SICAR)', fonte: 'SFB', cor: 'accent-emerald-500',
-      tipo: 'wms', url: 'https://geoserver.car.gov.br/geoserver/sicar/wms', porUf: uf => `sicar:sicar_imoveis_${uf}`,
+      tipo: 'wms', url: '/camadas/sicar.png', porUf: uf => `sicar:sicar_imoveis_${uf}`,
       minZoom: 11 },
     { grupo: 'Fundiário', id: 'sigef', nome: 'SIGEF privado (certificações até 04/2022)', fonte: 'INCRA, cópia IBAMA',
       cor: 'accent-amber-500', tipo: 'arcgis', url: `${PAMGIA}/lim_imovel_sigef_privado_a/MapServer`, camada: 9, minZoom: 11 },

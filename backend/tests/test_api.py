@@ -586,8 +586,10 @@ def test_sobreposicoes_com_bases_publicas(client, servico, monkeypatch):
 
     def falso(caixa, caixa_ampla):
         chamadas.append((caixa, caixa_ampla))
+        # vizinhos de outro município, em maior número: o MF sugerido é o do município do imóvel
         vizinhos = [_poligono(-45.60 + i * 0.001, -23.10, -45.599 + i * 0.001, -23.099,
-                              cod_imovel=f"SP-X-{i}", area=40.0, m_fiscal=2.0, municipio="Taubaté") for i in range(4)]
+                              cod_imovel=f"SP-X-{i}", area=32.0, m_fiscal=2.0, municipio="Pindamonhangaba")
+                    for i in range(4)]
         return {
             "car": [
                 _poligono(-45.530, -23.040, -45.520, -23.030, cod_imovel=meu_car, area=113.4, m_fiscal=5.67,
@@ -621,4 +623,39 @@ def test_sobreposicoes_com_bases_publicas(client, servico, monkeypatch):
     assert d["toques_de_divisa"] == 1 and niveis
     fontes = {f["id"]: f for f in d["fontes"]}
     assert fontes["mineracao"]["ok"] is False and fontes["terra_indigena"]["ok"] is True
-    assert d["mf_sugerido"] == {"municipio": "Taubaté", "mf_ha": 20.0, "amostras": 7}
+    assert d["mf_sugerido"] == {"municipio": "Taubaté", "mf_ha": 20.0, "amostras": 3}
+
+
+def test_ladrilho_sicar_valida_e_guarda_em_cache(client, monkeypatch, tmp_path):
+    from app import consultas_publicas
+    from app.config import settings as cfg
+
+    monkeypatch.setattr(cfg, "storage_dir", tmp_path)
+    pedidos = []
+
+    class Resposta:
+        status_code = 200
+        headers = {"content-type": "image/png"}
+        content = b"\x89PNG-falso"
+
+    class Cliente:
+        def __init__(self, **_kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def get(self, url, params):
+            pedidos.append(params)
+            return Resposta()
+
+    monkeypatch.setattr(consultas_publicas.httpx, "Client", Cliente)
+    q = "layers=sicar:sicar_imoveis_sp&bbox=-5066246.23,-2632000,-5065023.24,-2630777&width=512&height=512"
+    assert client.get(f"/camadas/sicar.png?{q}").content == b"\x89PNG-falso"
+    assert client.get(f"/camadas/sicar.png?{q}").status_code == 200
+    assert len(pedidos) == 1  # a segunda veio do cache
+    assert client.get("/camadas/sicar.png?layers=outra:camada&bbox=1,2,3,4").status_code == 422
+    assert client.get("/camadas/sicar.png?layers=sicar:sicar_imoveis_sp&bbox=1,2,3").status_code == 422

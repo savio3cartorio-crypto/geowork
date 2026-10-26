@@ -244,6 +244,18 @@ def sobreposicoes(servico_id: int):
         return consultas_publicas.consultar(conn, servico)
 
 
+# Ladrilhos do SICAR repassados com cache (o servidor do CAR é instável para pedidos diretos do navegador)
+@api.get("/camadas/sicar.png")
+def ladrilho_sicar(layers: str, bbox: str, width: int = 512, height: int = 512):
+    if width != height:
+        raise ValueError("ladrilho precisa ser quadrado")
+    try:
+        conteudo = consultas_publicas.ladrilho_sicar(layers, bbox, width, settings.storage_dir / "cache_sicar")
+    except ConnectionError as erro:
+        raise HTTPException(status_code=502, detail=str(erro)) from None
+    return Response(content=conteudo, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+
 # Prazos de complementação vencidos ou vencendo nos próximos `dias` (alerta da tela inicial)
 @api.get("/car/prazos")
 def prazos_car(dias: int = Query(default=30, ge=0, le=365)):
