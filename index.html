@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeoWork — CAR, SIGEF & Notarial</title>
+  <meta name="description" content="Workspace de georreferenciamento: CAR, SIGEF, memorial descritivo e entregas.">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="flex flex-col h-screen overflow-hidden bg-slate-900 text-slate-100 font-sans">
+
+  <!-- TOPBAR: cliente, serviço, busca e ações rápidas -->
+  <header class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 bg-slate-900 border-b border-slate-800 z-30">
+    <div class="flex items-center gap-2 font-bold text-sky-400 text-lg mr-1">
+      <span class="bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 rounded text-sm">GEO</span>
+      <span>GeoWork</span>
+    </div>
+
+    <label class="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded px-2.5 py-1 text-xs">
+      <span class="text-slate-400">Cliente:</span>
+      <select id="clientSelect" class="bg-transparent font-semibold text-slate-100 focus:outline-none max-w-xs"></select>
+    </label>
+
+    <div class="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded px-2.5 py-1 text-xs">
+      <span class="text-slate-400">Serviço:</span>
+      <select id="serviceSelect" class="bg-transparent font-semibold text-emerald-400 focus:outline-none max-w-xs"></select>
+      <button id="btnRev" type="button" title="Criar nova revisão (clona o serviço ativo)" class="ml-1 bg-slate-700 hover:bg-slate-600 px-1.5 py-0.5 rounded text-[10px] text-slate-200">+Rev</button>
+    </div>
+
+    <div class="flex items-center gap-2 ml-auto">
+      <input id="searchInput" type="text" placeholder="Coordenada (-23.02, -45.55) ou município"
+        class="w-72 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
+      <button id="btnSearch" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2.5 py-1.5 rounded text-xs">Ir</button>
+      <button id="btnQuote" type="button" class="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 px-3 py-1.5 rounded text-xs font-medium">⚡ Croqui Orçamento</button>
+      <div class="text-right text-[11px] leading-tight border-l border-slate-800 pl-3">
+        <div class="font-semibold text-slate-200">SIRGAS 2000</div>
+        <div id="zoneLabel" class="text-sky-400 font-mono"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 min-h-0 relative">
+
+    <!-- SIDEBAR: OS 4 PILARES -->
+    <aside class="w-96 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col z-20">
+      <nav class="grid grid-cols-4 text-xs font-semibold border-b border-slate-800 bg-slate-950/60">
+        <button type="button" data-pillar="dados" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">1. DADOS</button>
+        <button type="button" data-pillar="desenhos" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">2. DESENHO</button>
+        <button type="button" data-pillar="limites" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">3. LIMITES</button>
+        <button type="button" data-pillar="entregas" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">4. ENTREGAS</button>
+      </nav>
+
+      <!-- PILAR 1: DADOS -->
+      <div id="pillar-dados" class="pillar p-4 space-y-4 overflow-y-auto flex-1 hidden">
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Importar levantamento</h3>
+          <p class="text-[11px] text-slate-400">GeoJSON, KML, Shapefile (.zip) ou CSV de pontos RTK (colunas <code>lat,lon</code> ou <code>E,N</code>). A camada ativa define onde os dados entram.</p>
+          <input type="file" id="fileImport" accept=".geojson,.json,.kml,.zip,.csv"
+            class="block w-full text-xs text-slate-300 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500">
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Documentos do imóvel</h3>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <label class="text-[10px] text-slate-400">Matrícula / CRI
+              <input data-doc="matricula" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="text-[10px] text-slate-400">Código INCRA / SNCR
+              <input data-doc="incra" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+            </label>
+            <label class="col-span-2 text-[10px] text-slate-400">Recibo do CAR (SICAR)
+              <input data-doc="car" type="text" class="mt-0.5 w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono">
+            </label>
+          </div>
+          <label class="block text-[10px] text-slate-400">Demonstrativo do CAR (PDF do SICAR)
+            <input id="arquivoInput" type="file" accept="application/pdf"
+              class="mt-0.5 block w-full text-xs text-slate-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500">
+          </label>
+          <ul id="arquivoList" class="text-[11px] text-slate-300 space-y-1"></ul>
+        </div>
+      </div>
+
+      <!-- PILAR 2: DESENHOS e quadro CAR -->
+      <div id="pillar-desenhos" class="pillar p-4 space-y-4 overflow-y-auto flex-1 hidden">
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Camada ativa</h3>
+          <select id="activeLayerSelect" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200">
+            <option value="perimetro">Perímetro oficial do imóvel</option>
+            <option value="rl">Reserva Legal (CAR)</option>
+            <option value="app">APP</option>
+            <option value="hidro">Curso d'água (linha)</option>
+            <option value="edificacao">Edificação / benfeitoria</option>
+          </select>
+          <p class="text-[11px] text-slate-400">Clique no mapa para marcar vértices. Ou use a barra CAD: <code>120.50 85.25</code> (distância m, azimute °). Depois, FECHAR.</p>
+          <div class="grid grid-cols-3 gap-1">
+            <button id="btnFechar" type="button" class="bg-sky-600 hover:bg-sky-500 py-1 rounded text-[11px]">Fechar</button>
+            <button id="btnDesfazer" type="button" class="bg-slate-700 hover:bg-slate-600 py-1 rounded text-[11px]">Desfazer</button>
+            <button id="btnLimparCamada" type="button" class="bg-rose-700/60 hover:bg-rose-700 py-1 rounded text-[11px]">Limpar camada</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-emerald-400">Quadro ambiental CAR</h3>
+          <div class="text-xs space-y-1.5">
+            <div class="flex justify-between"><span>Área total do imóvel</span><span id="carTotalHa" class="font-mono font-bold">0,0000 ha</span></div>
+            <div class="flex justify-between text-emerald-300"><span>Reserva Legal de referência</span><span id="carRlExig" class="font-mono text-right">0,0000 ha</span></div>
+            <div class="flex justify-between text-emerald-300"><span>Reserva Legal desenhada</span><span id="carRlDesenhada" class="font-mono">0,0000 ha</span></div>
+            <div class="flex justify-between text-sky-300"><span>APP desenhada</span><span id="carApp" class="font-mono">0,0000 ha</span></div>
+            <div class="flex justify-between items-center gap-2">
+              <span>Módulo fiscal (ha, do INCRA/município)</span>
+              <input id="mfInput" type="text" placeholder="ex.: 15" class="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono text-right">
+            </div>
+            <div class="flex justify-between text-sky-300"><span>Quantidade de módulos</span><span id="carMf" class="font-mono text-right">-</span></div>
+          </div>
+          <p id="carStatus" class="text-[11px] text-amber-300"></p>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3 space-y-2">
+          <h3 class="text-xs font-bold uppercase text-slate-300">APP por curso d'água</h3>
+          <p class="text-[11px] text-slate-400">Desenhe o curso na camada "Curso d'água" e gere a faixa de APP. A faixa é fixa e simplificada.</p>
+          <div class="flex gap-2 items-center text-xs">
+            <select id="bufferDist" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+              <option value="30">30 m</option>
+              <option value="50">50 m</option>
+            </select>
+            <button id="btnGerarApp" type="button" class="bg-sky-600 hover:bg-sky-500 px-3 py-1 rounded text-xs">Gerar APP</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3">
+          <h3 class="text-xs font-bold uppercase text-slate-300 mb-2">Camadas do serviço</h3>
+          <ul id="layerList"></ul>
+        </div>
+      </div>
+
+      <!-- PILAR 3: LIMITES (SIGEF e confrontantes) -->
+      <div id="pillar-limites" class="pillar p-4 space-y-3 overflow-y-auto flex-1">
+        <div class="grid grid-cols-4 gap-2 bg-slate-800/80 border border-slate-700 rounded p-2.5 text-center">
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase">Área ha</div>
+            <div id="statAreaHa" class="text-xs font-bold text-emerald-400 font-mono">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase">Área m²</div>
+            <div id="statAreaM2" class="text-xs font-bold text-sky-400 font-mono">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase">Perím. m</div>
+            <div id="statPerim" class="text-xs font-bold text-amber-300 font-mono">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase">Vértices</div>
+            <div id="statVertices" class="text-xs font-bold text-slate-200 font-mono">0</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold uppercase text-slate-300">Vértices e confrontantes</h3>
+          <div class="flex gap-1">
+            <button id="btnExemplo" type="button" class="bg-sky-600/30 hover:bg-sky-600/50 border border-sky-500/50 text-sky-200 px-2 py-0.5 rounded text-[11px]">Carregar exemplo</button>
+            <button id="btnLimparPerimetro" type="button" class="bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/50 text-rose-200 px-2 py-0.5 rounded text-[11px]">Limpar</button>
+          </div>
+        </div>
+
+        <div id="verticesList" class="space-y-2 text-xs"></div>
+
+        <div class="bg-slate-800/60 border border-slate-700 rounded p-3">
+          <h3 class="text-xs font-bold uppercase text-slate-300 mb-2">Validador topológico</h3>
+          <ul id="validatorList" class="space-y-1 text-xs"></ul>
+        </div>
+      </div>
+
+      <!-- PILAR 4: ENTREGAS -->
+      <div id="pillar-entregas" class="pillar p-4 space-y-3 overflow-y-auto flex-1 hidden">
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <button id="btnMemNotarial" type="button" class="bg-sky-600 hover:bg-sky-500 font-semibold py-2 px-2 rounded">Memorial notarial (texto corrido)</button>
+          <button id="btnMemTabular" type="button" class="bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-2 rounded">Memorial tabular</button>
+          <button id="btnSigef" type="button" class="bg-emerald-600 hover:bg-emerald-500 font-semibold py-2 px-2 rounded">Planilha SIGEF (CSV)</button>
+          <button id="btnDxf" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .DXF (UTM)</button>
+          <button id="btnGeojson" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 py-2 px-2 rounded">Baixar .GeoJSON</button>
+        </div>
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-[11px] font-bold uppercase text-slate-400">Saída gerada</span>
+            <button id="btnCopy" type="button" class="text-[11px] text-sky-400 hover:underline">Copiar texto</button>
+          </div>
+          <textarea id="output" rows="16" class="w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-[11px] font-mono text-slate-200 leading-relaxed focus:outline-none"></textarea>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAPA E CANVAS CAD -->
+    <main class="flex-1 min-w-0 relative flex flex-col">
+      <div id="map" class="flex-1"></div>
+
+      <!-- Painel flutuante: modo de base e camadas públicas -->
+      <div class="absolute top-3 right-3 z-[1000] w-64 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-xl p-3 space-y-3 text-xs">
+        <div>
+          <div class="font-bold text-slate-300 uppercase text-[10px] mb-1.5">Modo de visualização</div>
+          <div class="grid grid-cols-3 gap-1">
+            <button type="button" data-mode="sat" class="py-1 rounded text-[11px]">Satélite</button>
+            <button type="button" data-mode="osm" class="py-1 rounded text-[11px]">Ruas</button>
+            <button type="button" data-mode="cad" class="py-1 rounded text-[11px]">CAD</button>
+          </div>
+        </div>
+        <div class="border-t border-slate-800 pt-2">
+          <div class="font-bold text-slate-300 uppercase text-[10px] mb-1.5">Camadas públicas (WMS)</div>
+          <div class="space-y-1.5 text-[11px]">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" data-wms="sigef" class="accent-amber-500"> <span>Parcelas SIGEF-SP (INCRA)</span></label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" data-wms="sicar" class="accent-emerald-500"> <span>Imóveis CAR (SICAR)</span></label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" data-wms="igc" class="accent-purple-500"> <span>Limites municipais (DataGEO-SP)</span></label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" data-wms="hidro" class="accent-sky-500"> <span>Hidrografia SP (DataGEO)</span></label>
+          </div>
+          <p class="text-[10px] text-slate-500 mt-2">Endpoints WMS a confirmar; a camada pode não carregar.</p>
+        </div>
+      </div>
+
+      <!-- Status e barra de comando CAD -->
+      <div id="status" class="text-xs px-4 py-1 bg-slate-950 border-t border-slate-800 min-h-[1.5rem]"></div>
+      <div class="h-11 bg-slate-950 border-t border-slate-800 px-3 flex items-center justify-between text-xs font-mono z-[1000]">
+        <form id="cadForm" class="flex items-center gap-2 flex-1 min-w-0">
+          <span class="text-sky-400 font-bold">COMANDO CAD:</span>
+          <input id="cadInput" type="text" autocomplete="off"
+            placeholder="120.50 85.25 (m, azimute)  |  PL  FECHAR  DESFAZER  DIST  SNAP  LIMPAR"
+            class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-emerald-300 w-full max-w-xl focus:outline-none focus:border-sky-500">
+          <button type="submit" class="bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded text-slate-300">Executar</button>
+        </form>
+        <div id="cursorCoords" class="text-slate-400 text-[11px] pl-4 shrink-0 hidden md:block"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/cad.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/memorial.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

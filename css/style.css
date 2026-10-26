@@ -1,0 +1,31 @@
+/* Complementos ao Tailwind: modo CAD, rótulos de vértice e tema escuro fixo. */
+
+body { background: #0f172a; }
+
+/* Ativo dos botões de base e pilares é aplicado por classes Tailwind em app.js */
+
+/* Modo CAD: esconde a base de mapa e desenha grade técnica */
+#map.cad-mode {
+  background-color: #090d16;
+  background-image:
+    linear-gradient(to right, rgba(30, 41, 59, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(30, 41, 59, 0.5) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+#map.cad-mode .leaflet-tile-pane { display: none; }
+
+/* Rótulo técnico dos vértices do perímetro */
+.vertex-label {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #38bdf8;
+  color: #38bdf8;
+  font-size: 10px;
+  font-family: monospace;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Barra de comando: sem seleção acidental ao clicar nos botões */
+.pillar button,
+#cadForm button { user-select: none; }
