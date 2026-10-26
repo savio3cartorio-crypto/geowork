@@ -757,6 +757,13 @@
   map.on('moveend', atualizarAtribuicaoGoogle);
 
   async function setBaseMode(mode) {
+    if (mode === 'hibosm' && !baseLayers.hibosm) {
+      try {
+        baseLayers.hibosm = L.layerGroup([esriImagem(), await RotulosOsm.criarCamada(map)]);
+      } catch (err) {
+        return msg(`Estradas do OpenStreetMap indisponíveis: ${err.message}`, true);
+      }
+    }
     if (mode === 'google') {
       try {
         await ativarGoogle();

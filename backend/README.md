@@ -117,7 +117,10 @@ Coordenadas são `[lng, lat]` em SIRGAS 2000 geográfico (EPSG:4674).
 
 ## Mapa do Google (opcional)
 
-O mapa base padrão é o **Híbrido** da Esri (satélite com vias e nomes). O botão **Google** (satélite híbrido do
+O mapa base padrão é o **Híbrido** da Esri (satélite com vias e nomes). O modo **Híbrido OSM** põe estradas
+(as de terra tracejadas), rios e nomes do OpenStreetMap sobre o mesmo satélite, pelo OpenFreeMap (gratuito,
+sem chave, uso comercial permitido). Ele usa a MapLibre GL 5.24.0 e o plugin maplibre-gl-leaflet 0.1.4,
+em `vendor/maplibre/`, carregados só quando o modo é escolhido. O botão **Google** (satélite híbrido do
 Google) só aparece quando o servidor tem uma chave da **Map Tiles API**, o serviço oficial de ladrilhos do Google.
 Puxar ladrilhos direto de `mt*.google.com` não é permitido pelos termos do Google Maps.
 
