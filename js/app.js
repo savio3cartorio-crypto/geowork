@@ -2003,7 +2003,8 @@
       atual.docs.car = codigo;
       document.querySelectorAll('[data-doc=car]').forEach(input => (input.value = codigo));
       commitChanges();
-      usar.replaceWith(botaoUsarCar(codigo));
+      // troca depois do clique: com o botão já fora da página, o Leaflet tomaria o clique como clique no mapa
+      setTimeout(() => usar.replaceWith(botaoUsarCar(codigo)), 0);
       msg(`Código do CAR ${codigo} gravado no serviço "${atual.name}".`);
     });
     return usar;
@@ -2012,8 +2013,6 @@
   function conteudoIdentificacao(dados) {
     const caixa = document.createElement('div');
     caixa.className = 'text-[11px] space-y-2';
-    // o botão "Usar" some ao ser clicado; sem isto o Leaflet trataria o clique como clique no mapa
-    L.DomEvent.disableClickPropagation(caixa);
     let total = 0;
     dados.camadas.forEach(c => {
       const bloco = document.createElement('div');
