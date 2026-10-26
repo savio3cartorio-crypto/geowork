@@ -798,3 +798,14 @@ def test_pacote_do_projeto_organiza_anexos_por_pasta(client, servico, tmp_path, 
         leia = z.read("LEIA-ME.txt").decode("utf-8")
     assert "memoriais/ (Memoriais, 2 arquivo(s))" in leia
     assert "Ainda não incluído" in leia
+
+
+def test_conferencia_do_projeto_responde_itens(client, servico, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    _anexo(client, servico["id"], "matricula.pdf", PDF_MINIMO, pasta="documentos")
+    resposta = client.get(f"/servicos/{servico['id']}/conferencia")
+    assert resposta.status_code == 200, resposta.text
+    itens = resposta.json()["itens"]
+    assert {i["grupo"] for i in itens} <= {"Georreferenciamento", "CAR"}
+    assert any("Perímetro não desenhado" in i["texto"] for i in itens)
+    assert all({"grupo", "nivel", "texto", "base"} <= set(i) for i in itens)

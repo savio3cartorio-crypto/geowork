@@ -161,7 +161,7 @@ class ServicoUpdate(BaseModel):
         return normalizar_car(v)
 
 
-CategoriaArquivo = Literal["recibo_car", "matricula", "ccir", "itr_cib", "certidao", "insumo", "outro"]
+CategoriaArquivo = Literal["recibo_car", "matricula", "ccir", "itr_cib", "certidao", "art", "insumo", "outro"]
 
 
 PastaArquivo = Literal["plantas", "memoriais", "planilhas", "imagens", "relatorios", "documentos"]

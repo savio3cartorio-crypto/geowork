@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from psycopg.errors import UniqueViolation
 
-from . import consultas_publicas, docx_export, gpkg_export, identificar, mapa_google, pacote, repo, sicar_export, schemas
+from . import conferencia, consultas_publicas, docx_export, gpkg_export, identificar, mapa_google, pacote, repo, sicar_export, schemas
 from .auth import (
     COOKIE, autenticar, bloqueado, criar_sessao, limpar_falhas, normalizar_email,
     registrar_falha, revogar_sessao, sessao_valida, usuario_atual,
@@ -190,6 +190,14 @@ def baixar_arquivo(arquivo_id: int):
     with connect() as conn:
         nome, caminho = repo.caminho_arquivo(conn, arquivo_id, settings.storage_dir)
     return FileResponse(caminho, filename=nome)
+
+
+# Conferência do projeto: o que o GeoWork confere sozinho, o que falta e o que é do técnico conferir
+@api.get("/servicos/{servico_id}/conferencia")
+def conferir_projeto(servico_id: int):
+    with connect() as conn:
+        servico, contagem, anexos = repo.dados_conferencia(conn, servico_id)
+    return {"itens": conferencia.checar(servico, servico["vertices"], servico["confrontantes"], contagem, anexos)}
 
 
 # Projeto inteiro em um .zip: anexos em suas pastas, GeoPackage e pacote do SICAR gerados do desenho

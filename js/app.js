@@ -2171,12 +2171,11 @@
     const s = svc();
     try {
       if (!file || !s || !s.remote || remote.mode !== 'api') return;
-      const pdf = file.name.toLowerCase().endsWith('.pdf');
       await api(`/servicos/${s.id}/arquivos`, {
         method: 'POST',
         body: {
           nome_arquivo: file.name,
-          categoria: pdf ? 'recibo_car' : 'outro',
+          categoria: el('arquivoCategoria').value,
           pasta: el('arquivoPasta').value,
           conteudo_base64: await fileToBase64(file),
         },
@@ -2268,6 +2267,46 @@
   el('btnGpkg').addEventListener('click', baixarGpkg);
   el('btnSicar').addEventListener('click', baixarSicar);
   el('btnPacote').addEventListener('click', baixarPacote);
+
+  // Conferência do projeto: o servidor confere o que dá e a tela mostra o que falta
+  const NIVEIS_CONFERENCIA = {
+    ok: ['✓', 'text-emerald-400'], aviso: ['⚠', 'text-amber-300'],
+    erro: ['✗', 'text-rose-400'], manual: ['☐', 'text-slate-300'], info: ['ℹ', 'text-sky-300'],
+  };
+  async function conferirProjeto() {
+    const s = svc();
+    const lista = el('conferenciaLista');
+    lista.replaceChildren();
+    if (remote.mode !== 'api' || !s || !s.remote) {
+      lista.textContent = 'Para conferir, use o servidor e um serviço salvo.';
+      return;
+    }
+    try {
+      await flushSync();
+      const { itens } = await api(`/servicos/${s.id}/conferencia`);
+      let grupo = null;
+      itens.forEach(i => {
+        if (i.grupo !== grupo) {
+          grupo = i.grupo;
+          const titulo = document.createElement('li');
+          titulo.className = 'font-semibold text-slate-400 text-[10px] uppercase pt-1';
+          titulo.textContent = grupo;
+          lista.append(titulo);
+        }
+        const [marca, cor] = NIVEIS_CONFERENCIA[i.nivel];
+        const li = document.createElement('li');
+        li.className = cor;
+        li.textContent = `${marca} ${i.texto}`;
+        if (i.base) li.title = `Base: ${i.base}`;
+        lista.append(li);
+      });
+      const cont = itens.reduce((t, i) => ({ ...t, [i.nivel]: (t[i.nivel] || 0) + 1 }), {});
+      msg(`Conferência: ${cont.erro || 0} erro(s), ${cont.aviso || 0} aviso(s), ${cont.manual || 0} item(ns) para o técnico.`);
+    } catch (err) {
+      if (!err.sessaoEncerrada) msg(`Erro na conferência: ${err.message}`, true);
+    }
+  }
+  el('btnConferir').addEventListener('click', conferirProjeto);
   el('btnSalvarEndereco').addEventListener('click', async () => {
     const c = state.clients.find(x => String(x.id) === String(state.activeClientId));
     if (remote.mode !== 'api' || !c) return;

@@ -798,3 +798,26 @@ def prazos_car(conn: Connection, dias: int) -> list[dict]:
         (dia + timedelta(days=dias),),
     ).fetchall()
     return [{**linha, "dias_restantes": (linha["prazo"] - dia).days} for linha in linhas]
+
+
+# ---------- conferência do projeto ----------
+
+def dados_conferencia(conn: Connection, servico_id: int) -> tuple[dict, dict[str, dict], list[dict]]:
+    """O que a conferência precisa: contagens das camadas, anexos (categoria e pasta) e o serviço."""
+    servico = get_servico(conn, servico_id)
+    contagem = {
+        row["categoria"]: {"total": row["total"], "invalidas": row["invalidas"], "pontos": row["pontos"]}
+        for row in conn.execute(
+            """
+            SELECT categoria, count(*) AS total,
+                   count(*) FILTER (WHERE NOT ST_IsValid(geom)) AS invalidas,
+                   COALESCE(sum(ST_NPoints(geom)), 0)::int AS pontos
+            FROM camadas_desenho WHERE servico_id = %s GROUP BY categoria
+            """,
+            (servico_id,),
+        ).fetchall()
+    }
+    anexos = conn.execute(
+        "SELECT categoria, pasta FROM arquivos_dados WHERE servico_id = %s", (servico_id,)
+    ).fetchall()
+    return servico, contagem, anexos
