@@ -78,3 +78,22 @@ def test_grupos_e_base_legal_em_cada_item():
     itens = checar(SERVICO_COMPLETO, [], [], CONTAGEM_OK, ANEXOS_COMPLETOS)
     assert {i["grupo"] for i in itens} == {"Georreferenciamento", "CAR"}
     assert all(i["base"] for i in itens)
+
+
+def test_marco_acima_da_precisao_e_aviso_e_ponto_fica_para_o_tecnico():
+    vertices = [
+        {"indice": 0, "codigo": "M-1", "tipo": "M", "sigma_x": 0.10, "sigma_y": 0.80},
+        {"indice": 1, "codigo": "M-2", "tipo": "M", "sigma_x": 0.10, "sigma_y": 0.20},
+        {"indice": 2, "codigo": "P-1", "tipo": "P", "sigma_x": 1.00, "sigma_y": 1.00},
+    ]
+    confrontantes = [{"indice": i} for i in range(3)]
+    itens = checar(SERVICO_COMPLETO, vertices, confrontantes, CONTAGEM_OK, ANEXOS_COMPLETOS)
+    marcos = por_texto(itens, "Marco(s) com precisão acima")
+    assert marcos and marcos[0]["nivel"] == "aviso" and "M-1" in marcos[0]["texto"] and "M-2" not in marcos[0]["texto"]
+    assert por_texto(itens, "pontos P e V")[0]["nivel"] == "manual"
+
+
+def test_marcos_dentro_da_precisao_sao_ok():
+    vertices = [{"indice": 0, "codigo": "M-1", "tipo": "M", "sigma_x": 0.3, "sigma_y": 0.4}]
+    itens = checar(SERVICO_COMPLETO, vertices, [{"indice": 0}], CONTAGEM_OK, ANEXOS_COMPLETOS)
+    assert por_texto(itens, "Marcos dentro da precisão")[0]["nivel"] == "ok"

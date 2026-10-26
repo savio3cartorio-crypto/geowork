@@ -10,6 +10,9 @@ import re
 BASE_GEO = "Lei 10.267/2001; Decreto 4.449/2002; norma técnica do INCRA para georreferenciamento de imóveis rurais"
 BASE_CAR = "Lei 12.651/2012 (Código Florestal) e Instrução Normativa MMA 2/2014 (CAR)"
 
+# Precisão exigida para marcos (tipo M) na planilha do SIGEF, modelo 1.4 rc5, em metros
+PRECISAO_MARCO_M = 0.50
+
 
 def checar(servico: dict, vertices: list[dict], confrontantes: list[dict],
            contagem: dict[str, dict], anexos: list[dict]) -> list[dict]:
@@ -46,6 +49,20 @@ def checar(servico: dict, vertices: list[dict], confrontantes: list[dict],
             add("aviso", f"{len(sem_precisao)} vértice(s) sem precisão (sigma) informada.", BASE_GEO)
         else:
             add("ok", "Precisão informada em todos os vértices.", BASE_GEO)
+        # Marcos (M): a planilha do SIGEF (modelo 1.4 rc5) exige 0,50 m. P e V dependem do tipo de divisa
+        # (natural ou artificial), que o sistema não registra: esses ficam para o técnico.
+        marcos_fora = [
+            v for v in vertices
+            if v.get("tipo") == "M" and v.get("sigma_x") is not None and v.get("sigma_y") is not None
+            and max(float(v["sigma_x"]), float(v["sigma_y"])) > PRECISAO_MARCO_M
+        ]
+        if marcos_fora:
+            codigos = ", ".join(v["codigo"] for v in marcos_fora[:5])
+            add("aviso", f"Marco(s) com precisão acima de {PRECISAO_MARCO_M:.2f} m: {codigos}.", BASE_GEO)
+        elif any(v.get("tipo") == "M" for v in vertices):
+            add("ok", f"Marcos dentro da precisão de {PRECISAO_MARCO_M:.2f} m.", BASE_GEO)
+        if any(v.get("tipo") in ("P", "V") for v in vertices):
+            add("manual", "Precisão dos pontos P e V: o limite depende do tipo de divisa (natural ou artificial).", BASE_GEO)
     else:
         add("aviso", "Vértices e confrontantes do SIGEF ainda não importados.", BASE_GEO)
 
