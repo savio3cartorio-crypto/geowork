@@ -172,8 +172,9 @@ def _sugerir_mf(car: list[dict], municipio_do_imovel: str | None = None) -> dict
     if len(valores) < 3:
         return None
     mediana = statistics.median(valores)
-    concordam = sum(1 for v in valores if abs(v - mediana) <= 0.02 * mediana)
-    if concordam < 0.8 * len(valores):
+    # Há CARs com a área retificada depois do cálculo dos módulos: tolera alguns fora da mediana
+    concordam = sum(1 for v in valores if abs(v - mediana) <= 0.05 * mediana)
+    if concordam < 0.7 * len(valores):
         return None  # valores espalhados: melhor não sugerir
     return {"municipio": municipio, "mf_ha": round(mediana, 1), "amostras": len(valores)}
 
